@@ -11,7 +11,9 @@ export const DEFAULT_SETTINGS = {
     autoAnalyze: true,
     repertoireLines: [],
     highlightColor: '#9bc700',
-    arrowColor: '#9bc700'
+    arrowColor: '#9bc700',
+    studyTarget: null,
+    studyRecent: []
 };
 
 export const ANALYSIS_DEPTH = {
@@ -57,5 +59,14 @@ export const STORAGE_KEYS = {
     AUTO_ANALYZE: 'autoAnalyze',
     REPERTOIRE_LINES: 'repertoireLines',
     HIGHLIGHT_COLOR: 'highlightColor',
-    ARROW_COLOR: 'arrowColor'
+    ARROW_COLOR: 'arrowColor',
+    STUDY_TARGET: 'studyTarget',
+    STUDY_RECENT: 'studyRecent'
+};
+
+export const STUDY = {
+    ENGINE_TIMEOUT_MS: 8000,
+    MAX_PAST_TARGET: 10,
+    RECENT_MAX: 10,
+    SEARCH_LIMIT: 20
 };
