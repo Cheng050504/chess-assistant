@@ -13,7 +13,7 @@ A free browser extension that provides real-time chess analysis powered by Stock
 - **Real-time analysis** — Stockfish engine runs locally in your browser; no data is sent to any server
 - **Top 3 move suggestions** with evaluation scores and mate detection
 - **Opening explorer** — automatically identifies the opening from ECO databases (A–E)
-- **Study an opening** — pick an opening by name or ECO code and get move-by-move guidance in games against the computer, with a Show/Try toggle for practice
+- **Study an opening** — pick an opening by name or ECO code and get move-by-move guidance in Chess.com bot games and on the analysis boards, with a Show/Try toggle for practice
 - **Repertoire builder** — save and manage your favorite lines
 - **Depth control** — configurable analysis depth from 5 to 25 half-moves
 - **Auto-analyze mode** — triggers analysis automatically after each move
@@ -157,11 +157,11 @@ The Chrome (Manifest V3) build works unchanged in Edge.
 
 ## Study an opening
 
-The **Study** section of the overlay guides you through an opening in a game against the computer. It works only on the pages listed in [Where assistance works](#where-assistance-works).
+The **Study** section of the overlay guides you through an opening in a Chess.com game against the computer, or on the analysis boards (Chess.com and Lichess `/analysis`). It works only on the pages listed in [Where assistance works](#where-assistance-works).
 
 1. In the overlay's Study section, click **Choose opening** (or **Change** if one is already chosen). The opening tree loads after the page becomes a training page, so you may see "Loading openings…" for about a second.
-2. Search by name or ECO code, for example `alien` or `B15`, and pick a result.
-3. Choose **White** or **Black**. The default is the side that plays the last move of the line.
+2. In the picker, choose **White** or **Black**. If you do not choose, the default is the side that plays the last move of the line.
+3. Search by name or ECO code, for example `alien` or `B15`, and click an opening. The color is fixed at this click. To switch color later, click **Change**, choose the color, and pick the opening again.
 4. Play the game. The overlay and the board show what to play next.
 
 ### Show and Try
@@ -175,7 +175,7 @@ The **Study** section of the overlay guides you through an opening in a game aga
 - Each piece of guidance carries a badge:
   - **Book**: the move comes from the opening line.
   - **Notes**: the move comes with a written explanation. Notes currently cover the Caro-Kann main moves and the Alien Gambit only.
-  - **Engine**: the move comes from Stockfish. After the book line ends, Engine guidance continues for up to 10 of your moves.
+  - **Engine**: the move comes from Stockfish. After the book line ends, or after a deviation, Engine guidance continues for up to 10 of your moves.
 - If the bot (or you) leaves the line, the deviation is named and guidance continues from the new position.
 
 ### Keyboard shortcuts
@@ -187,7 +187,7 @@ The **Study** section of the overlay guides you through an opening in a game aga
 | **O** | Open the opening picker |
 | **Esc** | Close the opening picker |
 
-Shortcuts are ignored while you are typing in a text field.
+Shortcuts are ignored while you are typing in a text field and with Ctrl, Cmd or Alt combinations. They do nothing while the overlay is hidden or collapsed, or on pages where assistance is off. **S** and **H** need a chosen opening. **Esc** also closes the picker from inside its search box.
 
 ---
 
