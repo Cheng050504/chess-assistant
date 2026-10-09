@@ -8,12 +8,15 @@ import { MoveHighlighter } from '../chess/move-highlighter.js';
 
 const logger = new Logger('Overlay');
 
+const BLOCKED_COPY = 'Assistance is off in games against people.';
+
 export class Overlay {
     constructor(analysisService) {
         this.analysisService = analysisService;
         this.element = null;
         this.launcher = null;
         this.isEnabled = true;
+        this.isBlocked = false;
         this.autoAnalyze = true;
         this.isCollapsed = false;
         this.isHidden = false;
@@ -60,6 +63,7 @@ export class Overlay {
     refreshControls() {
         this.updateEnabledButton();
         this.updateAutoButton();
+        this.setBlocked(this.isBlocked);
     }
 
     getTemplate() {
@@ -304,7 +308,7 @@ export class Overlay {
     }
 
     async analyze() {
-        if (!this.isEnabled) return;
+        if (!this.isEnabled || this.isBlocked) return;
 
         this.showLoading();
         await this.analysisService.analyze();
@@ -417,13 +421,39 @@ export class Overlay {
     }
 
     showError(message) {
+        if (this.isBlocked) return;
         const container = document.getElementById('chess-assistant-moves');
         if (container) {
             container.innerHTML = `<div class="loading" style="color: #ff6b6b;">${message}</div>`;
         }
     }
 
+    setBlocked(blocked) {
+        this.isBlocked = blocked;
+        if (!this.element) return;
+
+        this.element.classList.toggle('chess-assistant-blocked', blocked);
+        for (const id of ['chess-assistant-analyze', 'chess-assistant-auto']) {
+            const btn = document.getElementById(id);
+            if (btn) btn.disabled = blocked;
+        }
+
+        const container = document.getElementById('chess-assistant-moves');
+        if (!container) return;
+        if (blocked) {
+            const note = document.createElement('div');
+            note.className = 'loading';
+            note.textContent = BLOCKED_COPY;
+            container.replaceChildren(note);
+        } else if (container.textContent === BLOCKED_COPY) {
+            this.updateMessage(this.isEnabled && this.autoAnalyze
+                ? 'Auto-analysis enabled'
+                : 'Click "Analyze" to get move suggestions');
+        }
+    }
+
     updateMessage(message) {
+        if (this.isBlocked) return;
         const container = document.getElementById('chess-assistant-moves');
         if (container) {
             container.innerHTML = `<div class="loading">${message}</div>`;

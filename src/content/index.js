@@ -10,7 +10,9 @@ import { OpeningExplorer } from './services/opening-explorer.js';
 import { Overlay } from './ui/overlay.js';
 import { MoveHighlighter } from './chess/move-highlighter.js';
 import { BoardParser } from './chess/board-parser.js';
-import { SELECTORS, STORAGE_KEYS } from '../shared/constants.js';
+import { LiveSync } from './chess/live-sync.js';
+import { ContextGate } from './context/context-gate.js';
+import { STORAGE_KEYS } from '../shared/constants.js';
 
 const logger = new Logger('Content');
 
@@ -19,8 +21,10 @@ class ChessAssistant {
         this.analysisService = new AnalysisService();
         this.openingExplorer = new OpeningExplorer();
         this.overlay = new Overlay(this.analysisService);
-        this.moveObserver = null;
-        this.lastMoveCount = 0;
+        this.gate = null;
+        this.liveSync = null;
+        this.contextVerdict = 'blocked';
+        this.position = null;
         this.analysisStartFEN = null;
         this.analysisStartTurn = null;
         this.analysisColor = null;
@@ -39,8 +43,11 @@ class ChessAssistant {
         await this.openingExplorer.initialize();
         await this.delay(2000);
 
+        this.startGate();
+
         this.analysisService.connect();
         this.overlay.create();
+        this.overlay.refreshControls();
         this.overlay.setRepertoireLines(this.repertoireLines);
         this.setupOverlayCallbacks();
         this.setupAnalysisCallbacks();
@@ -48,6 +55,41 @@ class ChessAssistant {
         this.setupStorageListener();
 
         logger.log('Chess Assistant ready!');
+    }
+
+    startGate() {
+        this.gate = new ContextGate({
+            getUrl: () => location.href,
+            onChange: (verdict) => this.applyVerdict(verdict)
+        });
+
+        // Chess.com navigates without reloads; re-check on every history change.
+        if (!history.__chessAssistantWrapped) {
+            for (const name of ['pushState', 'replaceState']) {
+                const original = history[name];
+                history[name] = (...args) => {
+                    const result = original.apply(history, args);
+                    this.gate.check();
+                    return result;
+                };
+            }
+            history.__chessAssistantWrapped = true;
+        }
+        window.addEventListener('popstate', () => this.gate.check());
+
+        this.gate.start();
+    }
+
+    applyVerdict(verdict) {
+        this.contextVerdict = verdict;
+        if (verdict === 'blocked') {
+            this.analysisService.stopAnalysis();
+            MoveHighlighter.clearAll();
+            this.topMoves = [];
+            this.overlay.setBlocked(true);
+        } else {
+            this.overlay.setBlocked(false);
+        }
     }
 
     async loadSettings() {
@@ -267,18 +309,7 @@ class ChessAssistant {
     }
 
     getPlayedMoves() {
-        const nodes = document.querySelectorAll(
-            '.move-list .node, wc-simple-move-list .node, rm6 l4x kwdb'
-        );
-        const moves = [];
-
-        nodes.forEach((node) => {
-            const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!text || /^\d+\.?$/.test(text) || text === '...') return;
-            moves.push(text);
-        });
-
-        return moves;
+        return this.position?.sanHistory ?? [];
     }
 
     updateOpeningExplorer() {
@@ -300,36 +331,18 @@ class ChessAssistant {
     }
 
     setupMoveObserver() {
-        const moveList = document.querySelector(SELECTORS.MOVE_LIST);
-        if (!moveList) {
-            logger.warn('Move list not found, retrying...');
-            setTimeout(() => this.setupMoveObserver(), 1000);
-            return;
-        }
+        this.liveSync = new LiveSync({ onPositionChanged: (p) => this.onPositionChanged(p) });
+        this.liveSync.start();
+    }
 
-        logger.log('Setting up move observer');
+    onPositionChanged(p) {
+        this.position = p;
+        if (this.contextVerdict !== 'training') return;
+        if (!this.overlay.autoAnalyze || !this.overlay.isEnabled || !p.synced) return;
 
-        this.moveObserver = new MutationObserver(() => {
-            this.moveListCache = null;
-            if (!this.overlay.autoAnalyze || !this.overlay.isEnabled) return;
-
-            const currentMoveCount = this.getMoveCount();
-            if (currentMoveCount > this.lastMoveCount) {
-                this.lastMoveCount = currentMoveCount;
-                logger.log('New move detected, auto-analyzing...');
-
-                // STOP any ongoing analysis for the old position
-                this.stopCurrentAnalysis();
-
-                // Now analyze the new position
-                if (!this.analysisService.isAnalyzing) {
-                    this.overlay.analyze();
-                }
-            }
-        });
-
-        this.moveObserver.observe(moveList, { childList: true, subtree: true });
-        this.lastMoveCount = this.getMoveCount();
+        logger.log('Position changed, auto-analyzing...');
+        this.stopCurrentAnalysis();
+        this.overlay.analyze();
     }
 
     // Stop current analysis and reset UI
@@ -386,21 +399,6 @@ class ChessAssistant {
         }
 
         return true;
-    }
-
-    getMoveCount() {
-        // Cache the selector results to avoid repeated DOM traversals
-        if (!this.moveListCache) {
-            this.moveListCache = {
-                chess_com: document.querySelectorAll('.move-list .node'),
-                lichess: document.querySelectorAll('rm6 l4x kwdb')
-            };
-        }
-
-        const chessComCount = this.moveListCache.chess_com.length;
-        if (chessComCount > 0) return chessComCount;
-
-        return this.moveListCache.lichess.length;
     }
 
     setupStorageListener() {

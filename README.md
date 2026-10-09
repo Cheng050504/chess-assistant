@@ -23,6 +23,17 @@ A free browser extension that provides real-time chess analysis powered by Stock
 
 ---
 
+## Where assistance works
+
+Engine assistance (Analyze, auto-analyze, top-3 suggestions and arrows) is only on in these places:
+
+- Chess.com: games against the computer (`/play/computer`, `/game/computer/<id>`) and the analysis board (`/analysis`)
+- Lichess: the analysis board (`/analysis`)
+
+It is off everywhere else. Human games, daily games and lichess game pages are blocked, and the overlay says "Assistance is off in games against people." This is a change from earlier versions, which worked on every game page.
+
+---
+
 ## Installation
 
 ### Prerequisites
