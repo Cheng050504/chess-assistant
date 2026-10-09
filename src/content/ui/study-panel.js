@@ -114,7 +114,7 @@ export class StudyPanel {
         if (view.move && view.revealed) nodes.push(this.buildMoveCard(view.move));
         else if (view.move) {
             const card = el('div', 'study-card study-card-hidden');
-            card.appendChild(el('p', 'study-prompt', 'Find the book move'));
+            card.appendChild(el('p', 'study-prompt', view.move.source === 'engine' ? 'Find the best move' : 'Find the book move'));
             card.appendChild(button('Show me', 'study-btn study-btn-primary', () => this.callbacks.onReveal?.(),
                 { action: 'reveal', title: 'Reveal the move (H)' }));
             nodes.push(card);

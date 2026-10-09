@@ -51,7 +51,7 @@ function rulePhrases(before, after, move) {
 
   // Center: squares the moved piece occupies or attacks after the move.
   const center = CENTER.filter((sq) => sq === move.to || after.attackers(sq, mover).includes(move.to));
-  if (center.length) out.push(`Controls ${center.join(' and ')}.`);
+  if (center.length) out.push(`Controls ${joinList(center)}.`);
 
   // Attack: a newly attacked enemy piece (not the king) that is worth more
   // than the mover or is attacked more often than defended. Highest value wins.
@@ -72,9 +72,11 @@ function rulePhrases(before, after, move) {
   const gained = (move.captured ? VALUE[move.captured] : 0) + (move.promotion ? VALUE[move.promotion] - 1 : 0);
   const net = gained - exchange(new Chess(move.after), move.to);
   // A promoted piece that is recaptured costs only the pawn, so name the pawn.
-  if (net < 0 && VALUE[move.piece] > (move.captured ? VALUE[move.captured] : 0)) {
-    const forWhat = move.captured ? `for a ${NAME[move.captured]}` : 'for nothing';
-    out.push(`Gives up a ${NAME[move.piece]} ${forWhat}.`);
+  // A losing non-capture only states the verifiable fact (ruling R21).
+  if (net < 0 && !move.captured) {
+    out.push(`Leaves the ${NAME[pieceNow]} on ${move.to} en prise.`);
+  } else if (net < 0 && VALUE[move.piece] > VALUE[move.captured]) {
+    out.push(`Gives up a ${NAME[move.piece]} for a ${NAME[move.captured]}.`);
   } else if (move.captured) {
     out.push(`Captures a ${NAME[move.captured]}.`);
   }
@@ -95,6 +97,11 @@ function rulePhrases(before, after, move) {
   }
   if (opened) out.push(`Opens the ${NAME[opened.type]} on ${opened.sq}.`);
   return out;
+}
+
+// "a", "a and b", "a, b and c".
+function joinList(items) {
+  return items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
 // Number of squares the piece on `from` attacks.

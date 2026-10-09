@@ -58,7 +58,7 @@
   },
   "rnbqkb1r/pp2pNp1/2p2n1p/8/3P4/8/PPP2PPP/R1BQKBNR b KQkq -": {
     "moves": {
-      "Kxf7": "Takes the knight; Black is up a piece but the king has lost its shelter."
+      "Kxf7": "Takes the knight; Black is up a piece for a pawn but the king has lost its shelter."
     }
   },
   "rnbq1b1r/pp2pkp1/2p2n1p/8/3P4/8/PPP2PPP/R1BQKBNR w KQ -": {

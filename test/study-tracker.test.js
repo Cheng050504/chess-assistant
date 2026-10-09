@@ -65,9 +65,9 @@ test('opponent-deviated on 3...e6', () => {
   const s = ev(['e4', 'c6', 'd4', 'd5', 'Nc3', 'e6']);
   assert.equal(s.state, 'opponent-deviated');
   assert.ok(s.newOpening.eco.startsWith('B1'));
-  assert.match(s.message, /can't be reached/);
+  assert.doesNotMatch(s.message, /can't be reached/);
   assert.equal(s.message,
-    "3...e6: now the Caro-Kann Defense (B15). Caro-Kann Defense: Alien Gambit can't be reached this game.");
+    "3...e6: now the Caro-Kann Defense (B15). You've left the Caro-Kann Defense: Alien Gambit line — watching for a transposition back.");
   assert.equal(s.bookMove, 'dxe4');
   assert.deepEqual(s.nextMove, { san: null, uci: null, source: 'engine-needed' });
 });
@@ -76,14 +76,14 @@ test('opponent-deviated with no named opening leaves the book', () => {
   const s = ev(['e4', 'a6']);
   assert.equal(s.state, 'opponent-deviated');
   assert.equal(s.newOpening, null);
-  assert.equal(s.message, '1...a6 leaves the book.');
+  assert.equal(s.message, '1...a6 leaves the book. Watching for a transposition back to the Caro-Kann Defense: Alien Gambit.');
 });
 
 test('opponent-deviated names the new opening', () => {
   const s = ev(['e4', 'e6']);
   assert.equal(s.state, 'opponent-deviated');
   assert.deepEqual(s.newOpening, { eco: 'C00', name: 'French Defense' });
-  assert.equal(s.message, "1...e6: now the French Defense (C00). Caro-Kann Defense: Alien Gambit can't be reached this game.");
+  assert.equal(s.message, "1...e6: now the French Defense (C00). You've left the Caro-Kann Defense: Alien Gambit line — watching for a transposition back.");
 });
 
 test('after a deviation, book children of the current position guide the user', () => {
@@ -165,4 +165,29 @@ test('engine cap: userMovesPastTarget >= 10 → nextMove null, message Study lin
   const t = ev(moves);
   assert.equal(t.nextMove, null);
   assert.equal(t.message, 'Study line complete.');
+});
+
+// Studying as Black (Caro-Kann Classical from the fixture tree).
+const classical = tree.search('classical')[0];
+const black = { eco: classical.eco, name: classical.name, moves: classical.sanMoves, fen: classical.fen, color: 'b', mode: 'show' };
+const evB = (moves) => evaluate({ target: black, position: pos(moves, 'b'), tree });
+
+test('as Black: before 1.e4 the line awaits White; after 1.e4 nextMove c6', () => {
+  assert.equal(black.name, 'Caro-Kann Defense: Classical Variation');
+  const s = evB([]);
+  assert.equal(s.state, 'on-track');
+  assert.equal(s.nextMove, null);
+  assert.deepEqual(s.predictedMove, { san: 'e4', uci: 'e2e4' });
+  assert.deepEqual(s.awaiting, ['1.e4', '2.d4', '3.Nd2', '4.Nxe4']);
+  assert.equal(s.message, 'Waiting for White. The line needs 1.e4, 2.d4, 3.Nd2, 4.Nxe4.');
+  const t = evB(['e4']);
+  assert.equal(t.state, 'on-track');
+  assert.deepEqual(t.nextMove, { san: 'c6', uci: 'c7c6', source: 'book' });
+});
+
+test('as Black: 2...e6 is you-deviated with book move d5', () => {
+  const s = evB(['e4', 'c6', 'd4', 'e6']);
+  assert.equal(s.state, 'you-deviated');
+  assert.equal(s.bookMove, 'd5');
+  assert.equal(s.message, 'You left the line. The book move was d5.');
 });

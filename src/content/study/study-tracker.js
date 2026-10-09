@@ -133,7 +133,7 @@ export function evaluate({ target, position, tree }) {
   }
   const lead = moveNo(devPly) + devSan;
   const message = newOpening
-    ? `${lead}: now the ${newOpening.name} (${newOpening.eco}). ${target.name} can't be reached this game.`
-    : `${lead} leaves the book.`;
+    ? `${lead}: now the ${newOpening.name} (${newOpening.eco}). You've left the ${target.name} line — watching for a transposition back.`
+    : `${lead} leaves the book. Watching for a transposition back to the ${target.name}.`;
   return status('opponent-deviated', message, extra);
 }

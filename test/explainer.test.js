@@ -104,8 +104,8 @@ test('threat is null when the mover is in check', () => {
 // Fix round 1 regressions.
 test('recaptured promotion gives up a pawn, not a queen', () => {
   const r = explain({ fen: '3rk3/1P6/8/8/8/8/8/6K1 w - - 0 1', san: 'b8=Q' });
-  assert.ok(r.phrases.includes('Gives up a pawn for nothing.'));
-  assert.ok(!r.phrases.some((p) => /Gives up a queen/.test(p)));
+  assert.ok(r.phrases.includes('Leaves the queen on b8 en prise.'));
+  assert.ok(!r.phrases.some((p) => /Gives up/.test(p)));
 });
 test('threat ignores captures met by an x-ray recapture', () => {
   // Qxf4 is met by Bc1xf4 through the vacated e3. Black's real threat is Qxc1+ (undefended bishop).
@@ -119,4 +119,22 @@ test('threat fallback never reports a losing checking capture', () => {
 });
 test('Opens needs at least two new squares (Nf3 opens nothing)', () => {
   assert.ok(!explain({ fen: START_FEN, san: 'Nf3' }).phrases.some((p) => p.startsWith('Opens')));
+});
+
+// Final review fixes (R21, M6).
+test('non-capture that loses material reads en prise (1.d4 d5 2.c4)', () => {
+  const r = explain({ fen: replay(['d4', 'd5']).fen, san: 'c4' });
+  assert.ok(r.text.includes('Leaves the pawn on c4 en prise.'));
+  assert.ok(!r.text.includes('Gives up'));
+});
+test('a losing capture still reads Gives up (Alien Gambit 6.Nxf7)', () => {
+  const fen = replay(['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Nf6','Ng5','h6']).fen;
+  const r = explain({ fen, san: 'Nxf7' });
+  assert.ok(r.phrases.includes('Gives up a knight for a pawn.'));
+  assert.ok(!r.text.includes('en prise'));
+});
+test('three or more center squares are joined with commas and a final and', () => {
+  // On an open board, a queen on d3 reaches d4, d5 and e4 (not e5).
+  const r = explain({ fen: '4k3/8/8/8/8/8/8/3QK3 w - - 0 1', san: 'Qd3' });
+  assert.ok(r.phrases.includes('Controls d4, d5 and e4.'), r.phrases.join(' | '));
 });
