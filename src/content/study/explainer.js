@@ -71,9 +71,10 @@ function rulePhrases(before, after, move) {
   // sequence on the destination square (static exchange).
   const gained = (move.captured ? VALUE[move.captured] : 0) + (move.promotion ? VALUE[move.promotion] - 1 : 0);
   const net = gained - exchange(new Chess(move.after), move.to);
-  if (net < 0 && VALUE[pieceNow] > (move.captured ? VALUE[move.captured] : 0)) {
+  // A promoted piece that is recaptured costs only the pawn, so name the pawn.
+  if (net < 0 && VALUE[move.piece] > (move.captured ? VALUE[move.captured] : 0)) {
     const forWhat = move.captured ? `for a ${NAME[move.captured]}` : 'for nothing';
-    out.push(`Gives up a ${NAME[pieceNow]} ${forWhat}.`);
+    out.push(`Gives up a ${NAME[move.piece]} ${forWhat}.`);
   } else if (move.captured) {
     out.push(`Captures a ${NAME[move.captured]}.`);
   }
@@ -82,7 +83,7 @@ function rulePhrases(before, after, move) {
   if (move.flags.includes('k') || move.flags.includes('q')) out.push('Castles.');
 
   // Opens a line: the friendly bishop/rook/queen (not the moved piece) whose
-  // attacked-square count increases most.
+  // attacked-square count increases most, by at least 2 (ruling R10b).
   let opened = null;
   for (const sq of SQUARES) {
     if (sq === move.from || sq === move.to) continue;
@@ -90,7 +91,7 @@ function rulePhrases(before, after, move) {
     const q = before.get(sq);
     if (!p || p.color !== mover || !'brq'.includes(p.type) || !q || q.type !== p.type || q.color !== mover) continue;
     const gain = reach(after, sq, mover) - reach(before, sq, mover);
-    if (gain > 0 && (!opened || gain > opened.gain)) opened = { sq, type: p.type, gain };
+    if (gain >= 2 && (!opened || gain > opened.gain)) opened = { sq, type: p.type, gain };
   }
   if (opened) out.push(`Opens the ${NAME[opened.type]} on ${opened.sq}.`);
   return out;
@@ -140,9 +141,14 @@ function findThreat(fen, mover) {
   let bestCheck = null;
   for (const m of chess.moves({ verbose: true })) {
     if (!m.captured) continue;
-    const gain = VALUE[m.captured] - (chess.isAttacked(m.to, mover) ? VALUE[m.piece] : 0);
+    // Defended = the original mover can legally recapture after the capture
+    // (catches x-ray defenders and pins).
+    chess.move(m);
+    const defended = chess.moves({ verbose: true }).some((r) => r.to === m.to);
+    chess.undo();
+    const gain = VALUE[m.captured] - (defended ? VALUE[m.piece] : 0);
     if (!bestGain || gain > bestGain.gain) bestGain = { san: m.san, gain };
-    if (/[+#]$/.test(m.san) && (!bestCheck || gain > bestCheck.gain)) bestCheck = { san: m.san, gain };
+    if (/[+#]$/.test(m.san) && gain >= 0 && (!bestCheck || gain > bestCheck.gain)) bestCheck = { san: m.san, gain };
   }
   const pick = bestGain && bestGain.gain > 0 ? bestGain : bestCheck;
   if (!pick) return null;
