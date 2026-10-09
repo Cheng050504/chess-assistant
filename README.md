@@ -13,6 +13,7 @@ A free browser extension that provides real-time chess analysis powered by Stock
 - **Real-time analysis** — Stockfish engine runs locally in your browser; no data is sent to any server
 - **Top 3 move suggestions** with evaluation scores and mate detection
 - **Opening explorer** — automatically identifies the opening from ECO databases (A–E)
+- **Study an opening** — pick an opening by name or ECO code and get move-by-move guidance in games against the computer, with a Show/Try toggle for practice
 - **Repertoire builder** — save and manage your favorite lines
 - **Depth control** — configurable analysis depth from 5 to 25 half-moves
 - **Auto-analyze mode** — triggers analysis automatically after each move
@@ -38,7 +39,7 @@ It is off everywhere else. Human games, daily games and lichess game pages are b
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v16 or later
+- [Node.js](https://nodejs.org/) v16 or later to build (v22 or later to run the tests)
 - npm v7 or later
 
 ### Steps
@@ -122,6 +123,15 @@ Built files are output to:
 
 > **Note:** Temporary add-ons in Firefox are removed when the browser is closed. For a persistent installation, the extension must be signed or installed via `about:addons`.
 
+### Install in Microsoft Edge
+
+The Chrome (Manifest V3) build works unchanged in Edge.
+
+1. Run `npm run build:chrome`
+2. Open `edge://extensions`
+3. Enable **Developer mode**
+4. Click **Load unpacked** and select the `dist/chrome/` folder
+
 ---
 
 ## Usage
@@ -145,6 +155,57 @@ Built files are output to:
 
 ---
 
+## Study an opening
+
+The **Study** section of the overlay guides you through an opening in a game against the computer. It works only on the pages listed in [Where assistance works](#where-assistance-works).
+
+1. In the overlay's Study section, click **Choose opening** (or **Change** if one is already chosen). The opening tree loads after the page becomes a training page, so you may see "Loading openings…" for about a second.
+2. Search by name or ECO code, for example `alien` or `B15`, and pick a result.
+3. Choose **White** or **Black**. The default is the side that plays the last move of the line.
+4. Play the game. The overlay and the board show what to play next.
+
+### Show and Try
+
+- **Show** displays the book move and its arrow.
+- **Try** hides the book move until you click **Show me**. While there is a move for you to find in Try mode, Stockfish's top-3 list is hidden too.
+
+### Arrows and sources
+
+- A **dashed arrow** is the reply the bot is expected to play. A **solid arrow** is your next move.
+- Each piece of guidance carries a badge:
+  - **Book**: the move comes from the opening line.
+  - **Notes**: the move comes with a written explanation. Notes currently cover the Caro-Kann main moves and the Alien Gambit only.
+  - **Engine**: the move comes from Stockfish. After the book line ends, Engine guidance continues for up to 10 of your moves.
+- If the bot (or you) leaves the line, the deviation is named and guidance continues from the new position.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| **S** | Switch between Show and Try |
+| **H** | Show me (reveal the hidden move in Try mode) |
+| **O** | Open the opening picker |
+| **Esc** | Close the opening picker |
+
+Shortcuts are ignored while you are typing in a text field.
+
+---
+
+## Manual test checklist
+
+Run these in Microsoft Edge after a change to the extension.
+
+1. `npm run build:chrome`, then `edge://extensions` → Developer mode → Load unpacked → `dist/chrome`.
+2. `/play/computer` as White: pick Alien Gambit; follow the line; confirm book moves, dashed bot predictions, `reached`.
+3. Bot deviates: confirm the new opening name and continued guidance.
+4. Try mode: Show me, wrong move feedback.
+5. As Black: `wrong-color` message.
+6. `/play/online` and a `/game/live/…` page: nothing shown and no engine activity.
+7. Resize the window and flip the board: arrows stay aligned.
+8. Navigate from `/play/computer` to `/play/online` without reloading; the panel shows the blocked message within 1 s and no arrows remain.
+
+---
+
 ## Project Structure
 
 ```
@@ -164,11 +225,15 @@ chess-assistant/
 │   ├── content/             # Content scripts injected into chess sites
 │   │   ├── index.js         # Entry point
 │   │   ├── chess/           # Board parsing, FEN validation, move highlighting
+│   │   ├── context/         # Page gate: where assistance is allowed
+│   │   ├── study/           # Opening tree, study tracker/controller, explainer, recent list
 │   │   ├── services/        # Analysis service, opening explorer
 │   │   └── ui/              # Overlay component
 │   ├── popup/               # Browser action popup (settings UI)
 │   ├── shared/              # Shared constants, logger, storage helpers
-│   └── styles/              # Overlay CSS
+│   ├── styles/              # Overlay CSS
+│   └── vendor/              # Vendored libraries (chess.js)
+├── test/                    # Node test runner suites (*.test.js) and fixtures
 └── scripts/
     └── build.js             # Build script
 ```
@@ -190,6 +255,7 @@ chess-assistant/
 | `npm run clean` | Remove `dist/` directory |
 | `npm run package:chrome` | Build + package Chrome `.zip` |
 | `npm run package:firefox` | Build + package Firefox `.xpi` |
+| `npm test` | Run the unit tests (Node 22 or later) |
 | `npm run lint` | Run ESLint |
 | `npm run lint:fix` | Run ESLint with auto-fix |
 
@@ -200,6 +266,7 @@ chess-assistant/
 This project makes use of the following libraries:
 
 - **[@hayatbiralem/eco.json](https://www.npmjs.com/package/@hayatbiralem/eco.json)** — ECO chess opening database in JSON format, used to identify openings by FEN or move sequence.
+- **[chess.js 1.4.0](https://github.com/jhlywa/chess.js)** (BSD-2-Clause) — move generation and validation, vendored in `src/vendor/chess.js`.
 - **[@nmrugg/stockfish.js v10.0.2](https://www.npmjs.com/package/@nmrugg/stockfish.js)** — Stockfish chess engine compiled to JavaScript/WebAssembly, used for local position analysis.
 
 For more details, refer to the documentation of each library.
