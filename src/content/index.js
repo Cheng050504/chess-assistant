@@ -21,6 +21,9 @@ import { STORAGE_KEYS, STUDY } from '../shared/constants.js';
 
 const logger = new Logger('Content');
 
+const EXPLORER_BLOCKED_COPY = 'Assistance is off in games against people.';
+const EXPLORER_IDLE = { name: 'Opening not recognized yet', lines: ['Run analysis to detect opening context'], playedMoves: [] };
+
 const isStudyTarget = (t) => !!t && typeof t.fen === 'string' && Array.isArray(t.moves)
     && (t.color === 'w' || t.color === 'b');
 
@@ -58,9 +61,9 @@ class ChessAssistant {
         await this.openingExplorer.initialize();
         await this.delay(2000);
 
+        // The background port is opened only on a training verdict (applyVerdict).
         this.startGate();
 
-        this.analysisService.connect();
         this.overlay.create();
         this.overlay.refreshControls();
         this.overlay.setRepertoireLines(this.repertoireLines);
@@ -187,7 +190,7 @@ class ChessAssistant {
         const controller = this.studyController;
         if (!panel || !controller || this.overlay.isHidden || this.overlay.isCollapsed) return;
 
-        const key = event.key.toLowerCase();
+        const key = (event.key || '').toLowerCase();
         if (key === 'escape' && panel.pickerOpen) panel.closePicker();
         else if (this.contextVerdict === 'blocked') return;
         else if (key === 's' && controller.target) this.toggleStudyMode();
@@ -214,24 +217,38 @@ class ChessAssistant {
 
     applyVerdict(verdict) {
         this.contextVerdict = verdict;
-        if (verdict === 'blocked') {
+        const blocked = verdict === 'blocked';
+        if (blocked) {
             this.analysisService.setBlocked(true);
             this.analysisService.stopAnalysis();
-            this.analysisService.pendingRetryFen = null;
+            // Close the port: no engine, offscreen document or keep-alives on
+            // blocked pages, and no port to steal another tab's results.
+            this.analysisService.disconnect();
             MoveHighlighter.clearAll();
             this.topMoves = [];
             this.analysisStartFEN = null;
             this.analysisStartTurn = null;
             this.analysisColor = null;
+            // Forget the (possibly human-game) position so an unblock can't reuse it.
+            this.position = null;
             this.overlay.setBlocked(true);
-            this.updateOpeningExplorer();
+            this.overlay.setOpening({ name: EXPLORER_BLOCKED_COPY, lines: [], playedMoves: [] });
             MoveHighlighter.clearStudyArrows();
         } else {
             this.analysisService.setBlocked(false);
+            this.analysisService.connect(); // idempotent
             this.overlay.setBlocked(false);
+            this.overlay.setOpening({ ...EXPLORER_IDLE });
+            // Re-read the board so guidance starts from the current position.
+            const fresh = this.liveSync?.snapshot() ?? null;
+            if (fresh) this.position = fresh;
         }
-        if (this.studyController) this.studyController.setBlocked(verdict === 'blocked');
-        else this.renderStudy();
+        if (this.studyController) {
+            this.studyController.setBlocked(blocked);
+            this.studyController.setPosition(this.position);
+        } else {
+            this.renderStudy();
+        }
         this.scheduleStudyInit();
     }
 
@@ -474,7 +491,8 @@ class ChessAssistant {
         });
 
         const suggestedLines = [...(opening.lines || [])];
-        if (this.contextVerdict === 'training' && this.topMoves[0]) {
+        const tryHidden = shouldSuppressMoves(this.studyController?.view);
+        if (this.contextVerdict === 'training' && this.topMoves[0] && !tryHidden) {
             suggestedLines.unshift(`Engine best move here: ${this.topMoves[0].move}`);
         }
 
@@ -491,10 +509,10 @@ class ChessAssistant {
     }
 
     onPositionChanged(p) {
+        // Classify first: positions from a blocked page are never stored.
+        if (this.gate.check() !== 'training') return;
         this.position = p;
-        this.gate.check();
         this.studyController?.setPosition(p);
-        if (this.contextVerdict !== 'training') return;
         if (!this.overlay.autoAnalyze || !this.overlay.isEnabled || !p.synced) return;
 
         logger.log('Position changed, auto-analyzing...');

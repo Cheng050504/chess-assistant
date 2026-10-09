@@ -49,7 +49,7 @@ export class AnalysisService {
     // ── Connection ────────────────────────────────────────────────────────────
 
     connect() {
-        if (this.port) return;
+        if (this.port || this.isBlocked) return;
 
         try {
             this.port = chrome.runtime.connect({ name: 'chess-assistant' });
@@ -84,6 +84,25 @@ export class AnalysisService {
         }
     }
 
+    // Close the port on purpose (blocked page): no reconnects, no keep-alives.
+    // A local disconnect() does not fire this port's own onDisconnect.
+    disconnect() {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        this.reconnectAttempts = 0;
+        this.stopKeepAlive();
+        this.resetAnalyzingState();
+        this.pendingRetryFen = null;
+        const port = this.port;
+        this.port = null;
+        if (!port) return;
+        try {
+            port.disconnect();
+        } catch (e) {
+            logger.warn('Port disconnect failed:', e);
+        }
+    }
+
     async ensureConnected() {
         if (this.port) return true;
         this.connect();
@@ -93,7 +112,7 @@ export class AnalysisService {
     }
 
     scheduleReconnect() {
-        if (this.reconnectTimer) return;
+        if (this.reconnectTimer || this.isBlocked) return;
         if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             logger.error('Max reconnect attempts reached.');
             return;
@@ -105,6 +124,7 @@ export class AnalysisService {
 
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
+            if (this.isBlocked) return;
             this.connect();
             this.retryPendingAnalysis();
         }, delay);

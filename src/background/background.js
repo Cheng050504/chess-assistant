@@ -182,7 +182,8 @@ chrome.runtime.onConnect.addListener(function (port) {
     });
 
     port.onDisconnect.addListener(() => {
-        currentAnalysisPort = null;
+        // Only clear if a newer tab has not taken over the routing.
+        if (currentAnalysisPort === port) currentAnalysisPort = null;
     });
 });
 
