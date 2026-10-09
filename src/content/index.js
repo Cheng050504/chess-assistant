@@ -16,12 +16,11 @@ import { StudyPanel } from './ui/study-panel.js';
 import { StudyController } from './study/study-controller.js';
 import { OpeningTree } from './study/opening-tree.js';
 import { updateRecent } from './study/study-recent.js';
-import { normalizeFen } from './chess/game-state.js';
+import { shouldSuppressMoves, samePosition } from './study/study-view.js';
 import { STORAGE_KEYS, STUDY } from '../shared/constants.js';
 
 const logger = new Logger('Content');
 
-const sameFen = (a, b) => !!a && !!b && normalizeFen(a) === normalizeFen(b);
 const isStudyTarget = (t) => !!t && typeof t.fen === 'string' && Array.isArray(t.moves)
     && (t.color === 'w' || t.color === 'b');
 
@@ -49,6 +48,7 @@ class ChessAssistant {
         this.studyTarget = null;
         this.studyRecent = [];
         this.pendingEngine = null;
+        this.studyInitScheduled = false;
     }
 
     async initialize() {
@@ -70,7 +70,7 @@ class ChessAssistant {
         this.setupMoveObserver();
         this.setupStorageListener();
         this.createStudyPanel();
-        setTimeout(() => this.initStudy(), 0);
+        this.scheduleStudyInit();
         document.addEventListener('keydown', (event) => this.onStudyKey(event));
 
         logger.log('Chess Assistant ready!');
@@ -91,7 +91,14 @@ class ChessAssistant {
         this.renderStudy();
     }
 
-    // Deferred so the overlay paints before the (synchronous) tree build.
+    // Build the tree once, on the first training verdict (never on blocked pages),
+    // deferred so the overlay paints before the synchronous build.
+    scheduleStudyInit() {
+        if (this.studyInitScheduled || !this.studyPanel || this.contextVerdict !== 'training') return;
+        this.studyInitScheduled = true;
+        setTimeout(() => this.initStudy(), 0);
+    }
+
     async initStudy() {
         try {
             const notes = await this.openingExplorer.loadNotes();
@@ -119,7 +126,7 @@ class ChessAssistant {
         const blocked = this.contextVerdict === 'blocked';
         const v = view || { blocked, target: null, move: null };
         this.studyPanel?.render(v, { recent: this.studyRecent });
-        this.overlay.setSuppressMoves(!v.blocked && !!v.target && v.mode === 'try' && !v.revealed);
+        this.overlay.setSuppressMoves(shouldSuppressMoves(v));
         if (blocked || v.blocked || !v.target) {
             MoveHighlighter.clearStudyArrows();
             return;
@@ -161,7 +168,7 @@ class ChessAssistant {
             // Next task: lets an auto-analysis started for the same move go first.
             setTimeout(async () => {
                 if (this.pendingEngine !== entry) return;
-                if (service.isAnalyzing && sameFen(service.lastFen, fen)) return;
+                if (service.isAnalyzing && samePosition(service.lastFen, fen)) return;
                 const connected = !service.isBlocked && await service.ensureConnected();
                 if (this.pendingEngine !== entry) return;
                 if (!connected || !service.sendAnalyzeRequest(fen)) {
@@ -174,7 +181,7 @@ class ChessAssistant {
 
     onStudyKey(event) {
         if (event.ctrlKey || event.metaKey || event.altKey) return;
-        const t = event.target;
+        const t = event.composedPath?.()[0] ?? event.target;
         if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
         const panel = this.studyPanel;
         const controller = this.studyController;
@@ -185,8 +192,10 @@ class ChessAssistant {
         else if (this.contextVerdict === 'blocked') return;
         else if (key === 's' && controller.target) this.toggleStudyMode();
         else if (key === 'h' && controller.target) controller.revealHint();
-        else if (key === 'o') panel.openPicker();
-        else return;
+        else if (key === 'o' && !panel.pickerOpen) {
+            panel.openPicker();
+            if (!panel.pickerOpen) return;
+        } else return;
         event.preventDefault();
     }
 
@@ -223,6 +232,7 @@ class ChessAssistant {
         }
         if (this.studyController) this.studyController.setBlocked(verdict === 'blocked');
         else this.renderStudy();
+        this.scheduleStudyInit();
     }
 
     async loadSettings() {
@@ -439,7 +449,7 @@ class ChessAssistant {
             validMoves.sort((a, b) => a.multipv - b.multipv);
             this.topMoves = validMoves.slice(0, 3);
             const pending = this.pendingEngine;
-            if (pending && sameFen(pending.fen, this.analysisStartFEN)) {
+            if (pending && samePosition(pending.fen, this.analysisStartFEN)) {
                 const best = this.topMoves[0];
                 this.pendingEngine = null;
                 pending.resolve({ uci: best.move, scoreText: this.overlay.formatScore(best), depth: best.depth });
