@@ -1,0 +1,68 @@
+{
+  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -": {
+    "moves": {
+      "e4": "Claims the center and opens lines for the queen and the light-squared bishop."
+    }
+  },
+  "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -": {
+    "moves": {
+      "c6": "The Caro-Kann: prepares ...d5 to challenge e4 while keeping the c8-bishop's diagonal open."
+    }
+  },
+  "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -": {
+    "moves": {
+      "d4": "Builds a full pawn center on e4 and d4."
+    }
+  },
+  "rnbqkbnr/pp1ppppp/2p5/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq -": {
+    "moves": {
+      "d5": "Strikes at e4; the c6-pawn supports d5."
+    }
+  },
+  "rnbqkbnr/pp2pppp/2p5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq -": {
+    "moves": {
+      "Nc3": "Defends e4 with a piece while developing."
+    }
+  },
+  "rnbqkbnr/pp2pppp/2p5/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR b KQkq -": {
+    "moves": {
+      "dxe4": "Releases the tension by taking the e4-pawn; White will recapture with the knight."
+    }
+  },
+  "rnbqkbnr/pp2pppp/2p5/8/3Pp3/2N5/PPP2PPP/R1BQKBNR w KQkq -": {
+    "moves": {
+      "Nxe4": "Recaptures and centralizes the knight."
+    }
+  },
+  "rnbqkbnr/pp2pppp/2p5/8/3PN3/8/PPP2PPP/R1BQKBNR b KQkq -": {
+    "moves": {
+      "Nf6": "Challenges the centralized knight straight away."
+    }
+  },
+  "rnbqkb1r/pp2pppp/2p2n2/8/3PN3/8/PPP2PPP/R1BQKBNR w KQkq -": {
+    "moves": {
+      "Ng5": "The Alien Gambit: avoids the knight trade and eyes f7, hoping for ...h6 so that Nxf7 becomes possible.",
+      "Nxf6+": "The main line: trades knights and forces Black to recapture with a pawn."
+    },
+    "plan": "Decide between the solid main line (Nxf6+) and the Alien Gambit (Ng5)."
+  },
+  "rnbqkb1r/pp2pppp/2p2n2/6N1/3P4/8/PPP2PPP/R1BQKBNR b KQkq -": {
+    "moves": {
+      "h6": "Questions the knight; this is the reply the gambit is hoping for."
+    }
+  },
+  "rnbqkb1r/pp2ppp1/2p2n1p/6N1/3P4/8/PPP2PPP/R1BQKBNR w KQkq -": {
+    "moves": {
+      "Nxf7": "The sacrifice: the knight takes the f7-pawn to drag Black's king into the open. White is giving up a knight for a pawn; engines judge it unsound."
+    }
+  },
+  "rnbqkb1r/pp2pNp1/2p2n1p/8/3P4/8/PPP2PPP/R1BQKBNR b KQkq -": {
+    "moves": {
+      "Kxf7": "Takes the knight; Black is up a piece but the king has lost its shelter."
+    }
+  },
+  "rnbq1b1r/pp2pkp1/2p2n1p/8/3P4/8/PPP2PPP/R1BQKBNR w KQ -": {
+    "moves": {},
+    "plan": "White: develop fast and keep the king in the open — Bc4+ is a typical follow-up. Black: tuck the king away and return material if needed to finish development."
+  }
+}

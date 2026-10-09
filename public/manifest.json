@@ -42,7 +42,8 @@
         "ecoB.json",
         "ecoC.json",
         "ecoD.json",
-        "ecoE.json"
+        "ecoE.json",
+        "opening-notes.json"
       ],
       "matches": [
         "https://www.chess.com/*",
