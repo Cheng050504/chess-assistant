@@ -38,6 +38,12 @@ export class AnalysisService {
         this.pendingRetryFen = null;
         this.waitingForEngine = false;
         this.timeoutRecoveryAttempts = 0;
+        this.isBlocked = false;
+    }
+
+    setBlocked(blocked) {
+        this.isBlocked = blocked;
+        if (blocked) this.pendingRetryFen = null;
     }
 
     // ── Connection ────────────────────────────────────────────────────────────
@@ -174,6 +180,7 @@ export class AnalysisService {
     // ── Public API ────────────────────────────────────────────────────────────
 
     async analyze() {
+        if (this.isBlocked) return;
         if (this.isAnalyzing) {
             logger.warn('Already analyzing');
             return;
@@ -215,6 +222,8 @@ export class AnalysisService {
     }
 
     sendAnalyzeRequest(fen, triggerStartCallback = true) {
+        if (this.isBlocked) return false;
+
         // Before analyzing new position, stop old analysis
         if (this.isAnalyzing) {
             logger.log('Previous analysis still running, stopping it first');
@@ -274,6 +283,10 @@ export class AnalysisService {
     }
 
     retryPendingAnalysis() {
+        if (this.isBlocked) {
+            this.pendingRetryFen = null;
+            return;
+        }
         if (!this.port || !this.pendingRetryFen) return;
 
         const fen = this.pendingRetryFen;
@@ -281,6 +294,7 @@ export class AnalysisService {
         this.waitingForEngine = false;
 
         setTimeout(() => {
+            if (this.isBlocked) return;
             if (!this.port) {
                 this.pendingRetryFen = fen;
                 this.scheduleReconnect();

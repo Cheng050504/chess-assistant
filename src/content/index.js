@@ -50,6 +50,7 @@ class ChessAssistant {
         this.overlay.refreshControls();
         this.overlay.setRepertoireLines(this.repertoireLines);
         this.setupOverlayCallbacks();
+        this.overlay.onBeforeAnalyze(() => this.gate.check());
         this.setupAnalysisCallbacks();
         this.setupMoveObserver();
         this.setupStorageListener();
@@ -63,18 +64,8 @@ class ChessAssistant {
             onChange: (verdict) => this.applyVerdict(verdict)
         });
 
-        // Chess.com navigates without reloads; re-check on every history change.
-        if (!history.__chessAssistantWrapped) {
-            for (const name of ['pushState', 'replaceState']) {
-                const original = history[name];
-                history[name] = (...args) => {
-                    const result = original.apply(history, args);
-                    this.gate.check();
-                    return result;
-                };
-            }
-            history.__chessAssistantWrapped = true;
-        }
+        // The isolated world cannot see the page's own pushState calls, so the
+        // gate also re-checks on popstate, its 1 s poll, and before any analysis.
         window.addEventListener('popstate', () => this.gate.check());
 
         this.gate.start();
@@ -83,11 +74,18 @@ class ChessAssistant {
     applyVerdict(verdict) {
         this.contextVerdict = verdict;
         if (verdict === 'blocked') {
+            this.analysisService.setBlocked(true);
             this.analysisService.stopAnalysis();
+            this.analysisService.pendingRetryFen = null;
             MoveHighlighter.clearAll();
             this.topMoves = [];
+            this.analysisStartFEN = null;
+            this.analysisStartTurn = null;
+            this.analysisColor = null;
             this.overlay.setBlocked(true);
+            this.updateOpeningExplorer();
         } else {
+            this.analysisService.setBlocked(false);
             this.overlay.setBlocked(false);
         }
     }
@@ -199,6 +197,8 @@ class ChessAssistant {
     }
 
     handleStockfishMessage(message) {
+        if (this.contextVerdict !== 'training') return;
+
         // Show intermediate moves as they arrive (before bestmove)
         if (message.includes('info depth') && message.includes('multipv')) {
             // Extract and track depth
@@ -319,7 +319,7 @@ class ChessAssistant {
         });
 
         const suggestedLines = [...(opening.lines || [])];
-        if (this.topMoves[0]) {
+        if (this.contextVerdict === 'training' && this.topMoves[0]) {
             suggestedLines.unshift(`Engine best move here: ${this.topMoves[0].move}`);
         }
 
@@ -337,6 +337,7 @@ class ChessAssistant {
 
     onPositionChanged(p) {
         this.position = p;
+        this.gate.check();
         if (this.contextVerdict !== 'training') return;
         if (!this.overlay.autoAnalyze || !this.overlay.isEnabled || !p.synced) return;
 

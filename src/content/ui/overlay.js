@@ -17,6 +17,8 @@ export class Overlay {
         this.launcher = null;
         this.isEnabled = true;
         this.isBlocked = false;
+        this.blockedMessageShown = false;
+        this.beforeAnalyzeCallback = null;
         this.autoAnalyze = true;
         this.isCollapsed = false;
         this.isHidden = false;
@@ -307,7 +309,13 @@ export class Overlay {
         btn.classList.toggle('off', !this.autoAnalyze);
     }
 
+    onBeforeAnalyze(callback) {
+        this.beforeAnalyzeCallback = callback;
+    }
+
     async analyze() {
+        // Re-check the context synchronously; the URL may have changed since the last poll.
+        if (this.beforeAnalyzeCallback) this.beforeAnalyzeCallback();
         if (!this.isEnabled || this.isBlocked) return;
 
         this.showLoading();
@@ -321,6 +329,7 @@ export class Overlay {
    * @param {number} maxDepth - Target analysis depth
    */
     displayMoves(moves, currentDepth = 0, maxDepth = 0, color = null) {
+        if (this.isBlocked) return;
         const container = document.getElementById('chess-assistant-moves');
         if (!container) return;
 
@@ -445,7 +454,9 @@ export class Overlay {
             note.className = 'loading';
             note.textContent = BLOCKED_COPY;
             container.replaceChildren(note);
-        } else if (container.textContent === BLOCKED_COPY) {
+            this.blockedMessageShown = true;
+        } else if (this.blockedMessageShown) {
+            this.blockedMessageShown = false;
             this.updateMessage(this.isEnabled && this.autoAnalyze
                 ? 'Auto-analysis enabled'
                 : 'Click "Analyze" to get move suggestions');
