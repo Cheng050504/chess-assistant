@@ -12,9 +12,18 @@ import { MoveHighlighter } from './chess/move-highlighter.js';
 import { BoardParser } from './chess/board-parser.js';
 import { LiveSync } from './chess/live-sync.js';
 import { ContextGate } from './context/context-gate.js';
-import { STORAGE_KEYS } from '../shared/constants.js';
+import { StudyPanel } from './ui/study-panel.js';
+import { StudyController } from './study/study-controller.js';
+import { OpeningTree } from './study/opening-tree.js';
+import { updateRecent } from './study/study-recent.js';
+import { normalizeFen } from './chess/game-state.js';
+import { STORAGE_KEYS, STUDY } from '../shared/constants.js';
 
 const logger = new Logger('Content');
+
+const sameFen = (a, b) => !!a && !!b && normalizeFen(a) === normalizeFen(b);
+const isStudyTarget = (t) => !!t && typeof t.fen === 'string' && Array.isArray(t.moves)
+    && (t.color === 'w' || t.color === 'b');
 
 class ChessAssistant {
     constructor() {
@@ -34,6 +43,12 @@ class ChessAssistant {
         this.repertoireLines = [];
         this.highlightColor = null;
         this.arrowColor = null;
+        this.studyTree = null;
+        this.studyController = null;
+        this.studyPanel = null;
+        this.studyTarget = null;
+        this.studyRecent = [];
+        this.pendingEngine = null;
     }
 
     async initialize() {
@@ -54,8 +69,125 @@ class ChessAssistant {
         this.setupAnalysisCallbacks();
         this.setupMoveObserver();
         this.setupStorageListener();
+        this.createStudyPanel();
+        setTimeout(() => this.initStudy(), 0);
+        document.addEventListener('keydown', (event) => this.onStudyKey(event));
 
         logger.log('Chess Assistant ready!');
+    }
+
+    // ── Study ─────────────────────────────────────────────────────────────────
+
+    createStudyPanel() {
+        const root = document.getElementById('chess-assistant-study');
+        if (!root) return;
+        this.studyPanel = new StudyPanel(root, {
+            onPick: (target) => this.pickStudyTarget(target),
+            onToggleMode: () => this.toggleStudyMode(),
+            onReveal: () => this.studyController?.revealHint(),
+            onSearch: (query) => this.studyTree ? this.studyTree.search(query, STUDY.SEARCH_LIMIT) : [],
+            onColor: (color) => logger.log('Study color switched to', color)
+        });
+        this.renderStudy();
+    }
+
+    // Deferred so the overlay paints before the (synchronous) tree build.
+    async initStudy() {
+        try {
+            const notes = await this.openingExplorer.loadNotes();
+            const tree = OpeningTree.build(this.openingExplorer.entries);
+            logger.log(`Opening tree built: ${tree.size} openings, ${tree.skipped} skipped`);
+            this.studyTree = tree;
+            this.studyController = new StudyController({
+                tree,
+                notes,
+                requestEngine: (fen) => this.requestEngine(fen),
+                cancelEngine: () => { this.pendingEngine = null; },
+                onUpdate: (view) => this.renderStudy(view)
+            });
+            this.studyPanel?.setDataState(tree.size ? 'ready' : 'unavailable');
+            this.studyController.setBlocked(this.contextVerdict === 'blocked');
+            this.studyController.setTarget(this.studyTarget);
+            if (this.position) this.studyController.setPosition(this.position);
+        } catch (error) {
+            logger.error('Study setup failed:', error);
+            this.studyPanel?.setDataState('unavailable');
+        }
+    }
+
+    renderStudy(view = this.studyController?.view) {
+        const blocked = this.contextVerdict === 'blocked';
+        const v = view || { blocked, target: null, move: null };
+        this.studyPanel?.render(v, { recent: this.studyRecent });
+        this.overlay.setSuppressMoves(!v.blocked && !!v.target && v.mode === 'try' && !v.revealed);
+        if (blocked || v.blocked || !v.target) {
+            MoveHighlighter.clearStudyArrows();
+            return;
+        }
+        // Solid arrow only for a move playable now (not the book move after a deviation).
+        const playable = v.revealed && v.status?.nextMove ? v.move?.uci ?? null : null;
+        MoveHighlighter.drawStudyArrows({ primaryUci: playable, predictedUci: v.predictedUci });
+    }
+
+    pickStudyTarget(target) {
+        this.studyTarget = target;
+        this.studyRecent = updateRecent(this.studyRecent, target);
+        this.studyController?.setTarget(target);
+        this.saveStudy(true);
+    }
+
+    toggleStudyMode() {
+        const controller = this.studyController;
+        if (!controller?.target) return;
+        controller.setMode(controller.mode === 'try' ? 'show' : 'try');
+        this.studyTarget = controller.target;
+        this.saveStudy(false);
+    }
+
+    saveStudy(withRecent) {
+        const writes = [StorageService.set(STORAGE_KEYS.STUDY_TARGET, this.studyTarget)];
+        if (withRecent) writes.push(StorageService.set(STORAGE_KEYS.STUDY_RECENT, this.studyRecent));
+        Promise.all(writes).catch(() => this.overlay.updateMessage('Couldn\'t save study settings.'));
+    }
+
+    // Engine bridge for the study controller: shares the regular analysis
+    // when it is already running on this position, otherwise starts one.
+    requestEngine(fen) {
+        const service = this.analysisService;
+        if (service.isBlocked) return Promise.reject(new Error('Analysis is blocked'));
+        return new Promise((resolve, reject) => {
+            const entry = { fen, resolve, reject };
+            this.pendingEngine = entry;
+            // Next task: lets an auto-analysis started for the same move go first.
+            setTimeout(async () => {
+                if (this.pendingEngine !== entry) return;
+                if (service.isAnalyzing && sameFen(service.lastFen, fen)) return;
+                const connected = !service.isBlocked && await service.ensureConnected();
+                if (this.pendingEngine !== entry) return;
+                if (!connected || !service.sendAnalyzeRequest(fen)) {
+                    this.pendingEngine = null;
+                    reject(new Error('Engine request failed'));
+                }
+            }, 0);
+        });
+    }
+
+    onStudyKey(event) {
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        const t = event.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+        const panel = this.studyPanel;
+        const controller = this.studyController;
+        if (!panel || !controller || this.overlay.isHidden || this.overlay.isCollapsed) return;
+
+        const key = event.key.toLowerCase();
+        if (key === 'escape' && panel.pickerOpen) panel.closePicker();
+        else if (this.contextVerdict === 'blocked') return;
+        else if (key === 's' && controller.target) this.toggleStudyMode();
+        else if (key === 'h' && controller.target) controller.revealHint();
+        else if (key === 'o') panel.openPicker();
+        else return;
+        event.preventDefault();
     }
 
     startGate() {
@@ -84,10 +216,13 @@ class ChessAssistant {
             this.analysisColor = null;
             this.overlay.setBlocked(true);
             this.updateOpeningExplorer();
+            MoveHighlighter.clearStudyArrows();
         } else {
             this.analysisService.setBlocked(false);
             this.overlay.setBlocked(false);
         }
+        if (this.studyController) this.studyController.setBlocked(verdict === 'blocked');
+        else this.renderStudy();
     }
 
     async loadSettings() {
@@ -97,7 +232,9 @@ class ChessAssistant {
             STORAGE_KEYS.AUTO_ANALYZE,
             STORAGE_KEYS.REPERTOIRE_LINES,
             STORAGE_KEYS.HIGHLIGHT_COLOR,
-            STORAGE_KEYS.ARROW_COLOR
+            STORAGE_KEYS.ARROW_COLOR,
+            STORAGE_KEYS.STUDY_TARGET,
+            STORAGE_KEYS.STUDY_RECENT
         ]);
 
         this.analysisService.setDepth(settings.depth);
@@ -106,6 +243,8 @@ class ChessAssistant {
         this.repertoireLines = settings.repertoireLines || [];
         this.highlightColor = settings.highlightColor;
         this.arrowColor = settings.arrowColor;
+        this.studyTarget = isStudyTarget(settings.studyTarget) ? settings.studyTarget : null;
+        this.studyRecent = Array.isArray(settings.studyRecent) ? settings.studyRecent.filter(isStudyTarget) : [];
         MoveHighlighter.setColors({
             highlightColor: this.highlightColor,
             arrowColor: this.arrowColor
@@ -299,6 +438,12 @@ class ChessAssistant {
             const validMoves = this.topMoves.filter(m => m !== undefined);
             validMoves.sort((a, b) => a.multipv - b.multipv);
             this.topMoves = validMoves.slice(0, 3);
+            const pending = this.pendingEngine;
+            if (pending && sameFen(pending.fen, this.analysisStartFEN)) {
+                const best = this.topMoves[0];
+                this.pendingEngine = null;
+                pending.resolve({ uci: best.move, scoreText: this.overlay.formatScore(best), depth: best.depth });
+            }
             this.overlay.displayMoves(this.topMoves, 0, 0);
             this.updateOpeningExplorer();
         } else {
@@ -338,6 +483,7 @@ class ChessAssistant {
     onPositionChanged(p) {
         this.position = p;
         this.gate.check();
+        this.studyController?.setPosition(p);
         if (this.contextVerdict !== 'training') return;
         if (!this.overlay.autoAnalyze || !this.overlay.isEnabled || !p.synced) return;
 

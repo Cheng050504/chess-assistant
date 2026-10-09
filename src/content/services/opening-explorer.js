@@ -32,6 +32,26 @@ export class OpeningExplorer {
         logger.log(`Opening database loaded (${this.entries.length} entries)`);
     }
 
+    /**
+     * Load hand-written opening notes (keyed by normalized FEN).
+     * Missing or invalid notes are not fatal: returns {}.
+     * @returns {Promise<object>}
+     */
+    async loadNotes() {
+        try {
+            const response = await fetch(chrome.runtime.getURL('opening-notes.json'));
+            if (!response.ok) {
+                logger.warn(`Could not fetch opening-notes.json (${response.status}); continuing without notes`);
+                return {};
+            }
+            const data = await response.json();
+            return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+        } catch (error) {
+            logger.warn('Failed to load opening notes:', error.message || error);
+            return {};
+        }
+    }
+
     async loadEcoData() {
         try {
             const chunks = await Promise.all(

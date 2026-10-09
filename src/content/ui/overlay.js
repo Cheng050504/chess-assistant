@@ -9,6 +9,7 @@ import { MoveHighlighter } from '../chess/move-highlighter.js';
 const logger = new Logger('Overlay');
 
 const BLOCKED_COPY = 'Assistance is off in games against people.';
+const HIDDEN_MOVES_COPY = 'Hidden in Try mode — press Show me (H)';
 
 export class Overlay {
     constructor(analysisService) {
@@ -23,6 +24,9 @@ export class Overlay {
         this.isCollapsed = false;
         this.isHidden = false;
         this.topMoves = [];
+        this.suppressMoves = false;
+        this.suppressedShown = false;
+        this.lastMoves = null;
         this.currentOpening = {
             name: 'Opening not recognized yet',
             lines: ['Run analysis to detect opening context'],
@@ -78,10 +82,14 @@ export class Overlay {
                 <button id="chess-assistant-collapse" class="icon-btn" title="Collapse overlay">−</button>
                 <button id="chess-assistant-hide" class="icon-btn" title="Hide overlay">✕</button>
             </div>
+            <div id="chess-assistant-study" class="study-container" role="region" aria-label="Study"></div>
             <div id="chess-assistant-moves" class="moves-container">
                 <div class="loading">Auto-analysis enabled</div>
             </div>
-            <div id="chess-assistant-opening" class="opening-container"></div>
+            <details class="ca-more">
+                <summary>Opening Explorer &amp; Repertoire</summary>
+                <div id="chess-assistant-opening" class="opening-container"></div>
+            </details>
         `;
     }
 
@@ -330,8 +338,14 @@ export class Overlay {
    */
     displayMoves(moves, currentDepth = 0, maxDepth = 0, color = null) {
         if (this.isBlocked) return;
+        this.lastMoves = [moves, currentDepth, maxDepth, color];
+        if (this.suppressMoves) {
+            this.showSuppressed();
+            return;
+        }
         const container = document.getElementById('chess-assistant-moves');
         if (!container) return;
+        this.suppressedShown = false;
 
         if (moves.length === 0) {
             container.innerHTML = '<div class="loading">No moves found</div>';
@@ -397,6 +411,37 @@ export class Overlay {
         });
     }
 
+    /**
+     * Hide engine suggestions (and their hover arrows) while a Try-mode study
+     * move is unrevealed; restore the last suggestions when lifted.
+     */
+    setSuppressMoves(suppress) {
+        suppress = !!suppress;
+        if (suppress === this.suppressMoves) return;
+        this.suppressMoves = suppress;
+        if (suppress) {
+            MoveHighlighter.clearAll();
+            if (this.lastMoves) this.showSuppressed();
+        } else if (this.lastMoves) {
+            this.displayMoves(...this.lastMoves);
+        } else if (this.suppressedShown) {
+            this.updateMessage(this.isEnabled && this.autoAnalyze
+                ? 'Auto-analysis enabled'
+                : 'Click "Analyze" to get move suggestions');
+        }
+    }
+
+    showSuppressed() {
+        if (this.isBlocked) return;
+        const container = document.getElementById('chess-assistant-moves');
+        if (!container) return;
+        container.replaceChildren(Object.assign(document.createElement('div'), {
+            className: 'loading',
+            textContent: HIDDEN_MOVES_COPY
+        }));
+        this.suppressedShown = true;
+    }
+
     getDisplayMove(uciMove) {
         return uciMove;
     }
@@ -431,6 +476,8 @@ export class Overlay {
 
     showError(message) {
         if (this.isBlocked) return;
+        this.lastMoves = null;
+        this.suppressedShown = false;
         const container = document.getElementById('chess-assistant-moves');
         if (container) {
             container.innerHTML = `<div class="loading" style="color: #ff6b6b;">${message}</div>`;
@@ -439,6 +486,7 @@ export class Overlay {
 
     setBlocked(blocked) {
         this.isBlocked = blocked;
+        if (blocked) this.lastMoves = null;
         if (!this.element) return;
 
         this.element.classList.toggle('chess-assistant-blocked', blocked);
@@ -465,6 +513,8 @@ export class Overlay {
 
     updateMessage(message) {
         if (this.isBlocked) return;
+        this.lastMoves = null;
+        this.suppressedShown = false;
         const container = document.getElementById('chess-assistant-moves');
         if (container) {
             container.innerHTML = `<div class="loading">${message}</div>`;
