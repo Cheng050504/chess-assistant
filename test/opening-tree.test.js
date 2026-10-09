@@ -60,3 +60,21 @@ test('nodeForMoves and lineFor', () => {
   assert.deepEqual(tree.lineFor('C00', 'French Defense'), ['e4', 'e6']);
   assert.equal(tree.lineFor('C00', 'nope'), null);
 });
+
+test('eco matches only as the whole query, never as a substring', () => {
+  assert.deepEqual(tree.search('b1'), []);
+  assert.deepEqual(tree.search('caro b15'), []);
+  assert.ok(tree.search('b15').length > 0);
+});
+
+test('non-canonical SAN in an entry merges into the canonical child', () => {
+  const t = OpeningTree.build([
+    { eco: 'T01', name: 'Canon', moves: '1. e4 f5 2. Qh5+' },
+    { eco: 'T02', name: 'NoCheck', moves: '1. e4 f5 2. Qh5 g6' },
+  ]);
+  const node = t.nodeForMoves(['e4', 'f5']);
+  assert.deepEqual([...node.children.keys()], ['Qh5+']);
+  assert.equal(node.children.get('Qh5+').fen, replay(['e4', 'f5', 'Qh5']).fens.at(-1));
+  assert.equal(t.skipped, 0);
+  assert.equal(t.size, 2);
+});

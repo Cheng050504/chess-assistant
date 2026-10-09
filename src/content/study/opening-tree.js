@@ -82,7 +82,7 @@ export class OpeningTree {
       name: entry.name,
       sanMoves,
       fen: node.fen,
-      haystack: (entry.eco + ' ' + entry.name).toLowerCase(),
+      lname: entry.name.toLowerCase(),
     };
     this.entries.push(rec);
     const key = entry.eco + '\n' + entry.name;
@@ -95,8 +95,8 @@ export class OpeningTree {
     const tokens = q.split(/\s+/);
     const hits = [];
     this.entries.forEach((e, idx) => {
-      if (!tokens.every(t => e.haystack.includes(t))) return;
       const exactEco = e.eco.toLowerCase() === q ? 0 : 1;
+      if (exactEco && !tokens.every(t => e.lname.includes(t))) return;
       const prefix = e.name.toLowerCase().startsWith(q) ? 0 : 1;
       hits.push({ e, exactEco, prefix, idx });
     });
