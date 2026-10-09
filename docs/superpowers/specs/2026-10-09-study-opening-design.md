@@ -140,7 +140,7 @@ Engine fallback: requests go through `AnalysisService` at the configured depth. 
 ```
 
 - Shipped entries cover the Caro-Kann start (1.e4 c6, 2.d4 d5, 3.Nc3 dxe4, 4.Nxe4 Nf6) and the Alien Gambit (5.Ng5, 5...h6, 6.Nxf7, and the position after 6...Kxf7).
-- Content is limited to well-established facts, including the honest assessment: White gets two pawns and pressure on the exposed black king for the knight; engines assess it as favorable for Black.
+- Content is limited to well-established facts, including the honest assessment: White gives up a knight for one pawn to expose the black king; engines assess it as favorable for Black.
 - Added to `web_accessible_resources` in both manifests and copied by the build.
 
 ## 6. Explanations — `src/content/study/explainer.js`
