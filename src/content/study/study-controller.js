@@ -182,20 +182,19 @@ export class StudyController {
       promise = Promise.reject(e);
     }
     promise.then((result) => {
-      if (!result || !result.uci) return fail();
-      if (!uciToSan(fen, result.uci)) return fail();
-      this.cache.set(key, result);
       if (this.pending !== entry) return; // stale: user left this position
+      if (!result || !uciToSan(fen, result.uci)) return fail();
       let move;
       try {
         move = this._engineMove(fen, result);
       } catch (e) {
         return fail();
       }
+      this.cache.set(key, result);
       this.clearTimeoutFn(entry.timer);
       this.pending = null;
       this.engineState = 'idle';
       this._publish({ ...this._view, move, engineState: 'idle' });
-    }, fail);
+    }).catch(fail);
   }
 }

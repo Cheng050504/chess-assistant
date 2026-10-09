@@ -99,7 +99,7 @@ test('stale engine result is discarded', async () => {
 
 test('timeout marks engine unavailable', () => {
   const h = engineHistory();
-  const { c, timers, updates } = setup();
+  const { c, timers, updates, calls } = setup();
   c.setTarget(target);
   c.setPosition(pos(h));
   assert.equal(timers[0].ms, 8000);
@@ -108,6 +108,7 @@ test('timeout marks engine unavailable', () => {
   assert.equal(c.view.engineState, 'unavailable');
   assert.equal(c.view.move, null);
   assert.ok(updates.length > n);
+  assert.equal(calls.cancel, 1);
 });
 
 test('try mode hides until revealHint', () => {
@@ -142,4 +143,123 @@ test('you-deviated shows book move explanation', () => {
   assert.equal(c.view.move.uci, 'e2e4');
   assert.equal(c.view.revealed, true);
   assert.ok(c.view.move.explanation.text.length > 0);
+});
+
+// ---- regression tests (fix round 1) ----
+const H1 = ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Nf6', 'Ng5', 'h6', 'Nxf7', 'Kxf7'];
+const H2 = [...H1, 'Nf3', 'e5'];
+const needsEngine = (c, h) => { c.setPosition(pos(h)); return c.view.engineState === 'pending'; };
+
+test('engine histories are distinct engine-needed positions', () => {
+  const { c } = setup();
+  c.setTarget(target);
+  assert.ok(needsEngine(c, H1));
+  assert.ok(needsEngine(c, H2));
+});
+
+test('blocked then engine-needed position: no guidance, no request', () => {
+  const { c, calls } = setup();
+  c.setTarget(target);
+  c.setBlocked(true);
+  c.setPosition(pos(H1));
+  assert.equal(c.view.move, null);
+  assert.equal(c.view.predictedUci, null);
+  assert.equal(calls.request.length, 0);
+});
+
+test('timers are cleared on resolve, new position, block and target reset', async () => {
+  let s = setup();
+  s.c.setTarget(target); s.c.setPosition(pos(H1));
+  s.requests[0].res(engineResult);
+  await tick();
+  assert.equal(s.timers[0].cleared, true);
+
+  s = setup();
+  s.c.setTarget(target); s.c.setPosition(pos(H1)); s.c.setPosition(pos([]));
+  assert.equal(s.timers[0].cleared, true);
+
+  s = setup();
+  s.c.setTarget(target); s.c.setPosition(pos(H1)); s.c.setBlocked(true);
+  assert.equal(s.timers[0].cleared, true);
+
+  s = setup();
+  s.c.setTarget(target); s.c.setPosition(pos(H1)); s.c.setTarget(null);
+  assert.equal(s.timers[0].cleared, true);
+  assert.equal(s.calls.cancel, 1);
+});
+
+test('stale timeout callback does not affect a newer request', () => {
+  const { c, timers } = setup();
+  c.setTarget(target);
+  c.setPosition(pos(H1));
+  c.setPosition(pos(H2));
+  assert.equal(c.view.engineState, 'pending');
+  timers[0].fn();
+  assert.equal(c.view.engineState, 'pending');
+});
+
+test('overlapping requests: only the current one applies', async () => {
+  const { c, requests, calls } = setup();
+  c.setTarget(target);
+  c.setPosition(pos(H1));
+  c.setPosition(pos(H2));
+  assert.equal(calls.request.length, 2);
+  requests[0].res({ uci: 'g1f3', scoreText: 'A', depth: 1 });
+  await tick();
+  assert.equal(c.view.engineState, 'pending');
+  assert.equal(c.view.move, null);
+  const bUci = 'h2h3';
+  requests[1].res({ uci: bUci, scoreText: 'B', depth: 2 });
+  await tick();
+  assert.equal(c.view.move.uci, bUci);
+  assert.equal(c.view.engineState, 'idle');
+});
+
+test('invalid engine result or rejected request marks unavailable', async () => {
+  let s = setup();
+  s.c.setTarget(target); s.c.setPosition(pos(H1));
+  s.requests[0].res({ uci: 'a1a8', scoreText: 'x', depth: 1 });
+  await tick();
+  assert.equal(s.c.view.engineState, 'unavailable');
+
+  s = setup();
+  s.c.setTarget(target); s.c.setPosition(pos(H1));
+  s.requests[0].rej(new Error('boom'));
+  await tick();
+  assert.equal(s.c.view.engineState, 'unavailable');
+});
+
+test('stale result is not cached', async () => {
+  const { c, requests, calls } = setup();
+  c.setTarget(target);
+  c.setPosition(pos(H1));
+  c.setPosition(pos([]));
+  requests[0].res(engineResult);
+  await tick();
+  c.setPosition(pos(H1));
+  assert.equal(calls.request.length, 2);
+});
+
+test('setMode / revealHint while pending do not cancel the request', async () => {
+  const { c, requests, calls } = setup();
+  c.setTarget(target);
+  c.setPosition(pos(H1));
+  c.setMode('try');
+  c.revealHint();
+  assert.equal(calls.cancel, 0);
+  assert.equal(c.view.engineState, 'pending');
+  requests[0].res(engineResult);
+  await tick();
+  assert.equal(c.view.move.source, 'engine');
+  assert.equal(c.view.revealed, true);
+});
+
+test('fulfilment-path exception does not become unhandled rejection', async () => {
+  let throwNow = false;
+  const { c, requests } = setup({ onUpdate: () => { if (throwNow) throw new Error('ui'); } });
+  c.setTarget(target);
+  c.setPosition(pos(H1));
+  throwNow = true;
+  requests[0].res(engineResult);
+  await tick(); // an unhandled rejection would fail the test run
 });
