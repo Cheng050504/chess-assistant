@@ -24,8 +24,10 @@ export class ContextGate {
     this.getUrl = getUrl;
     this.onChange = onChange;
     this.intervalMs = intervalMs;
-    this.setIntervalFn = setIntervalFn;
-    this.clearIntervalFn = clearIntervalFn;
+    // Wrap so the timers are never called as methods of this object; browsers throw
+    // "Illegal invocation" when setInterval/clearInterval get a foreign `this`.
+    this.setIntervalFn = (fn, ms) => setIntervalFn(fn, ms);
+    this.clearIntervalFn = (id) => clearIntervalFn(id);
     this._verdict = null;
     this._timer = null;
   }

@@ -17,8 +17,10 @@ export class StudyController {
     this.cancelEngine = cancelEngine;
     this.onUpdate = onUpdate;
     this.timeoutMs = timeoutMs;
-    this.setTimeoutFn = setTimeoutFn;
-    this.clearTimeoutFn = clearTimeoutFn;
+    // Wrap so the timers are never called as methods of this object; browsers throw
+    // "Illegal invocation" when setTimeout/clearTimeout get a foreign `this`.
+    this.setTimeoutFn = (fn, ms) => setTimeoutFn(fn, ms);
+    this.clearTimeoutFn = (id) => clearTimeoutFn(id);
 
     this.target = null;
     this.mode = 'show';
