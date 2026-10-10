@@ -14,7 +14,11 @@
 
 'use strict';
 
-const IS_FIREFOX = typeof browser !== 'undefined' && !!browser.runtime;
+// Pick the engine host by capability, not by the presence of a `browser` global:
+// newer Chromium builds (e.g. Edge) expose `browser` too, and treating them as
+// Firefox tried to start a Worker inside the MV3 service worker, so the engine
+// never loaded. Chrome/Edge MV3 has chrome.offscreen; Firefox MV2 does not.
+const IS_FIREFOX = !(typeof chrome !== 'undefined' && chrome.offscreen);
 
 let currentAnalysisPort = null;
 let stockfishReady = false;
