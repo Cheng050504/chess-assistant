@@ -108,7 +108,7 @@ export class CoachController {
     const onLine = status && (status.state === 'on-track' || status.state === 'reached');
     let study = onLine && status.nextMove && status.nextMove.source === 'book' && status.nextMove.uci
       ? status.nextMove : null;
-    if (!study && onLine) study = this._notesMove(fen, key);
+    if (!study && onLine) study = this._notesMove(fen, key, position);
     const lines = this.cache.get(key);
     if (lines) {
       this._fromLines(view, fen, sanHistory, lines, study);
@@ -123,15 +123,16 @@ export class CoachController {
     return this.failedKey === key ? null : key;
   }
 
-  // R7: a hand-written notes move that continues the study line past the book.
-  _notesMove(fen, key) {
-    const moves = this.notes && this.notes[key] && this.notes[key].moves;
-    if (!moves || typeof moves !== 'object') return null;
-    for (const san of Object.keys(moves)) {
-      const uci = sanToUci(fen, san);
-      if (uci) return { san, uci };
-    }
-    return null;
+  // R7/R9: the notes entry's `study` move continues the line past the book. Only that
+  // field is used (never the first key of `moves`, which may document a blunder), only
+  // when legal, and only for the target's color (the caller checks the tracker state).
+  _notesMove(fen, key, position) {
+    if (!this.target || position.turn !== this.target.color) return null;
+    const entry = this.notes && this.notes[key];
+    const san = entry && typeof entry.study === 'string' ? entry.study : null;
+    if (!san) return null;
+    const uci = sanToUci(fen, san);
+    return uci ? { san: uciToSan(fen, uci) || san, uci } : null;
   }
 
   _fromLines(view, fen, sanHistory, lines, study) {

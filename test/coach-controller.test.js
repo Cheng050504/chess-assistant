@@ -321,3 +321,17 @@ test('R7: no notes entry falls through to engine', async () => {
   await tick();
   assert.notEqual(c.view.card.move.source, 'study');
 });
+
+test('R9: notes moves for the other side are never recommended (B10, user Black, after 7.Nf3)', async () => {
+  const b10 = tree.search('B10')[0];
+  const t = { eco: b10.eco, name: b10.name, moves: b10.sanMoves, fen: b10.fen, color: 'b' };
+  const { c, requests } = setup({ notes: realNotes });
+  c.setTarget(t);
+  c.setPosition(pos([...ALIEN, 'Nf3'], 'b'));
+  assert.notEqual(c.view.card.move && c.view.card.move.source, 'study');
+  assert.notEqual(c.view.card.move && c.view.card.move.san, 'Bg4');
+  requests[0].res([{ uci: 'e7e6', scoreText: '-1.0', score: -1.0, depth: 14 }]);
+  await tick();
+  assert.notEqual(c.view.card.move.source, 'study');
+  assert.notEqual(c.view.card.move.san, 'Bg4');
+});

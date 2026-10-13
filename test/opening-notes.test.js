@@ -54,3 +54,15 @@ test('every note is at most 200 characters', () => {
     }
   }
 });
+
+test('every study SAN is legal and documented in its entry', () => {
+  let n = 0;
+  for (const [key, entry] of Object.entries(notes)) {
+    if (entry.study === undefined) continue;
+    n++;
+    assert.equal(typeof entry.study, 'string', `study in ${key}`);
+    assert.notEqual(sanToUci(key + ' 0 1', entry.study), null, `study ${entry.study} illegal in ${key}`);
+    assert.ok(Object.hasOwn(entry.moves || {}, entry.study), `study ${entry.study} missing from moves in ${key}`);
+  }
+  assert.ok(n >= 2);
+});
