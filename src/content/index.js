@@ -68,7 +68,7 @@ class ChessAssistant {
             notes: {},
             requestEngine: (fen) => this.requestEngine(fen),
             cancelEngine: () => {
-                this.pendingEngine = null;
+                this.clearPendingEngine();
                 this.analysisService.stopAnalysis();
             },
             onUpdate: (view) => this.renderCoach(view)
@@ -159,8 +159,10 @@ class ChessAssistant {
         const service = this.analysisService;
         if (service.isBlocked) return Promise.reject(new Error('Analysis is blocked'));
         return new Promise((resolve, reject) => {
-            const entry = { fen, resolve, reject };
+            const entry = { fen, resolve, reject, softTimer: null };
+            this.clearPendingEngine();
             this.pendingEngine = entry;
+            this.armSoftLimit(entry, 2);
             setTimeout(async () => {
                 // Re-check the URL first (deferred: a verdict change re-enters the coach).
                 if (this.pendingEngine !== entry || this.gate.check() !== 'training') return;
@@ -168,11 +170,37 @@ class ChessAssistant {
                 const connected = !service.isBlocked && await service.ensureConnected();
                 if (this.pendingEngine !== entry) return;
                 if (!connected || !service.sendAnalyzeRequest(fen)) {
-                    this.pendingEngine = null;
+                    this.clearPendingEngine();
                     reject(new Error('Engine request failed'));
                 }
             }, 0);
         });
+    }
+
+    // R12: the pure-JS engine can be slow; after the soft limit, answer with the
+    // deepest lines of the current search so far (re-armed once if it has none).
+    armSoftLimit(entry, tries) {
+        entry.softTimer = setTimeout(() => {
+            entry.softTimer = null;
+            if (this.pendingEngine !== entry) return;
+            const current = this.contextVerdict === 'training' && this.searchOpen
+                && this.staleBestmoves === 0 && samePosition(entry.fen, this.analysisStartFEN);
+            if (current && this.topMoves.some(m => m !== undefined)) {
+                logger.log('Engine soft limit reached, answering with the deepest lines so far');
+                this.deliverLines();
+                // The search stays open: its bestmove is still owed and is consumed normally.
+                this.analysisService.stopAnalysis();
+            } else if (tries > 1) {
+                this.armSoftLimit(entry, tries - 1);
+            }
+        }, STUDY.ENGINE_SOFT_LIMIT_MS);
+    }
+
+    clearPendingEngine() {
+        const pending = this.pendingEngine;
+        this.pendingEngine = null;
+        if (pending?.softTimer) clearTimeout(pending.softTimer);
+        return pending;
     }
 
     onKey(event) {
@@ -277,8 +305,7 @@ class ChessAssistant {
     }
 
     rejectEngine(reason) {
-        const pending = this.pendingEngine;
-        this.pendingEngine = null;
+        const pending = this.clearPendingEngine();
         pending?.reject(new Error(String(reason)));
     }
 
@@ -367,17 +394,22 @@ class ChessAssistant {
     }
 
     resolveEngine() {
+        this.deliverLines();
+        this.analysisService.setAnalyzing(false);
+    }
+
+    // Resolve the pending request with up to 3 lines, best first, if they are for its position.
+    deliverLines() {
         const lines = this.topMoves.filter(m => m !== undefined).sort((a, b) => a.multipv - b.multipv).slice(0, 3);
         this.topMoves = lines;
         const pending = this.pendingEngine;
         if (lines.length && pending && samePosition(pending.fen, this.analysisStartFEN)) {
-            this.pendingEngine = null;
+            this.clearPendingEngine();
             pending.resolve(lines.map(m => ({
                 uci: m.move, scoreText: this.overlay.formatScore(m), depth: m.depth,
                 score: m.score, mateIn: m.mateIn
             })));
         }
-        this.analysisService.setAnalyzing(false);
     }
 
     setupMoveObserver() {
