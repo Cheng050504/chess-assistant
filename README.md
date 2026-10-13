@@ -136,7 +136,7 @@ The Chrome (Manifest V3) build works unchanged in Edge.
 1. Open a game against the computer on [chess.com](https://www.chess.com) (or an analysis board).
 2. The **Chess Assistant** overlay appears in the top-right corner of the page.
 3. On your turn, the overlay shows one **best-move card** and a solid arrow on the board. Guidance continues every turn until the game ends; there is no move limit.
-4. On the bot's turn the card says "Waiting for the bot…".
+4. On the bot's turn the card says "Waiting for the bot…". On an analysis board there is no bot, so the card always suggests a move for the side to move.
 5. Use the **popup icon** in your browser toolbar to adjust analysis depth and colors.
 
 ### The best-move card

@@ -147,8 +147,11 @@ class ChessAssistant {
     }
 
     // Only a synced position on a training page with the assistant ON reaches the coach.
+    // R11: analysis boards have no bot, so the side to move is the user there.
     forwardPosition() {
-        this.coach?.setPosition(this.overlay.isEnabled ? this.position : null);
+        let p = this.overlay.isEnabled ? this.position : null;
+        if (p && location.pathname.startsWith('/analysis')) p = { ...p, userColor: p.turn };
+        this.coach?.setPosition(p);
     }
 
     // Engine bridge for the coach: resolves with up to 3 lines, best first.
