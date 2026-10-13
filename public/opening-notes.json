@@ -62,7 +62,22 @@
     }
   },
   "rnbq1b1r/pp2pkp1/2p2n1p/8/3P4/8/PPP2PPP/R1BQKBNR w KQ -": {
-    "moves": {},
+    "moves": {
+      "Nf3": "witty_alien's main follow-up: develops with tempo ideas against the exposed king and prepares Ne5+ tricks."
+    },
     "plan": "White: develop fast and keep the king in the open — Bc4+ is a typical follow-up. Black: tuck the king away and return material if needed to finish development."
+  },
+  "rnbq1b1r/pp2pkp1/2p2n1p/8/3P4/5N2/PPP2PPP/R1BQKB1R b KQ -": {
+    "moves": {
+      "Bg4": "Looks like a strong pin, but it's the famous trap: 8.Ne5+ forks the king and the bishop."
+    },
+    "traps": [
+      "7...Bg4? 8.Ne5+ forks king and bishop"
+    ]
+  },
+  "rn1q1b1r/pp2pkp1/2p2n1p/8/3P2b1/5N2/PPP2PPP/R1BQKB1R w KQ -": {
+    "moves": {
+      "Ne5+": "Forks the king on f7 and the bishop on g4 — Black has only king moves, so White wins the bishop next."
+    }
   }
 }

@@ -1,8 +1,5 @@
 import { normalizeFen, replay, sanToUci, START_FEN } from '../chess/game-state.js';
 
-// Engine continuation past the target (or past a deviation) stops after this many user moves.
-const ENGINE_CAP = 10;
-
 const COLOR_NAME = { w: 'White', b: 'Black' };
 
 // Ply p (1-based, from the standard start) is a White move when odd.
@@ -40,16 +37,15 @@ function status(state, message, extra) {
 function continuation({ tree, cur, fullFen, userToMove, movesPast }) {
   const book = tree.bookContinuations(tree.nodeForFen(cur));
   const first = book.length ? { san: book[0].san, uci: sanToUci(fullFen, book[0].san) } : null;
-  const complete = !first && movesPast >= ENGINE_CAP;
   let nextMove = null;
   let predictedMove = null;
   if (userToMove) {
     if (first) nextMove = { ...first, source: 'book' };
-    else if (!complete) nextMove = { san: null, uci: null, source: 'engine-needed' };
+    else nextMove = { san: null, uci: null, source: 'engine-needed' };
   } else {
     predictedMove = first;
   }
-  return { nextMove, predictedMove, complete };
+  return { nextMove, predictedMove };
 }
 
 export function evaluate({ target, position, tree }) {
@@ -82,7 +78,7 @@ export function evaluate({ target, position, tree }) {
   if (reachedAt !== -1) {
     const movesPast = countUserMoves(reachedAt + 1, plies, userColor);
     const c = continuation({ tree, cur, fullFen: position.fen, userToMove, movesPast });
-    return status('reached', c.complete ? 'Study line complete.' : `You're in the ${target.name}.`, {
+    return status('reached', `You're in the ${target.name}.`, {
       nextMove: c.nextMove,
       predictedMove: c.predictedMove,
       userMovesPastTarget: movesPast,

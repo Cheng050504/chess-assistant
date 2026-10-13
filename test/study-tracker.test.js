@@ -147,24 +147,20 @@ test('new game resets to on-track', () => {
   assert.equal(s.nextMove.san, 'e4');
 });
 
-test('engine cap: userMovesPastTarget >= 10 → nextMove null, message Study line complete.', () => {
+test('engine-needed persists past 10 moves', () => {
   const moves = [...LINE];
   let fen = replay(moves).fen;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 21; i++) {
     const m = legalMoves(fen)[0];
     moves.push(m.san);
     fen = replay(moves).fen;
   }
+  // 11 + 21 plies: it is the user's (White's) turn.
   const s = ev(moves);
   assert.equal(s.state, 'reached');
   assert.ok(s.userMovesPastTarget >= 10);
-  assert.equal(s.nextMove, null);
-  assert.equal(s.message, 'Study line complete.');
-  // One more ply puts the user to move: still capped.
-  moves.push(legalMoves(fen)[0].san);
-  const t = ev(moves);
-  assert.equal(t.nextMove, null);
-  assert.equal(t.message, 'Study line complete.');
+  assert.equal(s.nextMove.source, 'engine-needed');
+  assert.ok(!s.message.includes('Study line complete'));
 });
 
 // Studying as Black (Caro-Kann Classical from the fixture tree).
