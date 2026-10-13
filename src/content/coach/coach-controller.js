@@ -145,8 +145,8 @@ export class CoachController {
   }
 
   _move(fen, san, uci, source, line) {
-    const engine = line && source !== 'study' ? { scoreText: line.scoreText, depth: line.depth } : undefined;
-    const explanation = explain({ fen, san, notes: this.notes, engine });
+    // R6: the score goes only in the card's score line, not the explanation.
+    const explanation = explain({ fen, san, notes: this.notes });
     return {
       san, uci, source, explanation,
       scoreText: line ? line.scoreText ?? null : null,

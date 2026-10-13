@@ -108,7 +108,8 @@ test('rule 3 engine move', async () => {
   assert.equal(m.san, 'e4');
   assert.equal(m.scoreText, '+0.4');
   assert.equal(m.depth, 14);
-  assert.ok(m.explanation.text.includes('+0.4'));
+  assert.ok(!m.explanation.text.includes('+0.4')); // R6: the score shows only in the card's score line
+  assert.ok(m.explanation.text.length > 0);
 });
 
 test('engine results are cached by position', async () => {
@@ -232,7 +233,7 @@ test('timeout → unavailable, study move kept', () => {
   const s = setup();
   s.c.setTarget(target);
   s.c.setPosition(pos(['e4', 'c6']));
-  assert.equal(s.timers[0].ms, 8000);
+  assert.equal(s.timers[0].ms, 30000);
   s.timers[0].fn();
   assert.equal(s.c.view.card.kind, 'move');
   assert.equal(s.c.view.card.move.source, 'study');

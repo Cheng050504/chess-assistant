@@ -63,7 +63,7 @@ export const STORAGE_KEYS = {
 };
 
 export const STUDY = {
-    ENGINE_TIMEOUT_MS: 8000,
+    ENGINE_TIMEOUT_MS: 30000,
     RECENT_MAX: 10,
     SEARCH_LIMIT: 20
 };

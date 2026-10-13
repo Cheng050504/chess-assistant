@@ -38,6 +38,11 @@ class ChessAssistant {
         this.analysisStartFEN = null;
         this.topMoves = [];
         this.engineLoading = false;
+        // Every `go` ends with exactly one `bestmove`, even when stopped. A search
+        // still open when the next one starts owes one stale `bestmove`; until it
+        // arrives, all engine output belongs to the old search and is ignored.
+        this.searchOpen = false;
+        this.staleBestmoves = 0;
         this.coach = null;
         this.studyTree = null;
         this.studyPanel = null;
@@ -168,7 +173,8 @@ class ChessAssistant {
     }
 
     onKey(event) {
-        if ((event.key || '').toLowerCase() !== 'escape' || !this.studyPanel?.pickerOpen) return;
+        if (event.key !== 'Escape' || !this.studyPanel?.pickerOpen) return;
+        if (this.overlay.isHidden || this.overlay.isCollapsed) return;
         this.studyPanel.closePicker();
         event.preventDefault();
     }
@@ -198,7 +204,8 @@ class ChessAssistant {
             MoveHighlighter.clearAll();
             this.topMoves = [];
             this.analysisStartFEN = null;
-                // Forget the (possibly human-game) position so an unblock can't reuse it.
+            this.resetSearchTracking();
+            // Forget the (possibly human-game) position so an unblock can't reuse it.
             this.position = null;
             this.overlay.setBlocked(true);
             MoveHighlighter.clearStudyArrows();
@@ -245,6 +252,10 @@ class ChessAssistant {
         });
 
         this.analysisService.onAnalyzeStart(() => {
+            // While the engine loads, the background replaces the queued request
+            // instead of starting a second search, so nothing stale is owed.
+            if (this.searchOpen && !this.engineLoading) this.staleBestmoves++;
+            this.searchOpen = true;
             this.topMoves = [];
             this.analysisStartFEN = this.analysisService.lastFen;
             logger.log('Analysis started for FEN:', this.analysisStartFEN);
@@ -252,12 +263,22 @@ class ChessAssistant {
 
         this.analysisService.onError((error) => {
             logger.warn('Engine error:', error);
-            const pending = this.pendingEngine;
-            this.pendingEngine = null;
-            pending?.reject(new Error(String(error)));
+            this.resetSearchTracking();
+            this.rejectEngine(error);
         });
 
         this.analysisService.onLoading(() => this.setEngineLoading(true));
+    }
+
+    rejectEngine(reason) {
+        const pending = this.pendingEngine;
+        this.pendingEngine = null;
+        pending?.reject(new Error(String(reason)));
+    }
+
+    resetSearchTracking() {
+        this.searchOpen = false;
+        this.staleBestmoves = 0;
     }
 
     setEngineLoading(loading) {
@@ -270,28 +291,31 @@ class ChessAssistant {
         if (this.contextVerdict !== 'training') return;
         this.setEngineLoading(false);
 
-        if (message.includes('info depth') && message.includes('multipv')) {
-            this.parseMultiPVInfo(message);
-            if (!this.isAnalysisStillValid()) {
-                logger.warn('Position changed during analysis, stopping');
-                this.analysisService.stopAnalysis();
-            }
-        } else if (message.includes('bestmove')) {
-            if (!this.isAnalysisStillValid()) {
-                logger.warn('Position changed, discarding analysis results');
-                this.analysisService.stopAnalysis();
-                return;
-            }
-            this.resolveEngine();
+        const isBest = message.includes('bestmove');
+        if (this.staleBestmoves > 0) {
+            // Output of a stopped search: its lines must not reach the new request.
+            if (isBest) this.staleBestmoves--;
+            return;
         }
+        // No search of ours is open (e.g. output still routed from another page's search).
+        if (!this.searchOpen) return;
+        if (isBest) this.searchOpen = false;
+        if (!isBest && !(message.includes('info depth') && message.includes('multipv'))) return;
+        if (!this.isAnalysisStillValid()) {
+            // The board moved on: fail now so the card doesn't wait for the timeout.
+            logger.warn('Position changed during analysis, discarding');
+            this.analysisService.stopAnalysis();
+            this.rejectEngine('Position changed during analysis');
+            return;
+        }
+        if (isBest) this.resolveEngine();
+        else this.parseMultiPVInfo(message);
     }
 
     /**
-    * Parse MultiPV info and track moves
-    * Only process if it's actually the human's turn
+    * Parse MultiPV info and keep the deepest line per multipv slot
     */
     parseMultiPVInfo(message) {
-        if (!this.analysisService.isAnalyzing) return;
         const depthMatch = message.match(/depth (\d+)/);
         const multipvMatch = message.match(/multipv (\d+)/);
         const scoreMatch = message.match(/score cp (-?\d+)/);

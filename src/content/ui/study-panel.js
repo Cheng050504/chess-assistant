@@ -6,6 +6,7 @@
  */
 
 const BLOCKED_COPY = 'Assistance is off in games against people.';
+const UNAVAILABLE_COPY = 'Opening data unavailable';
 const BADGE_LABEL = { study: 'Study', book: 'Book', engine: 'Engine' };
 const CARD_COPY = {
     waiting: 'Waiting for the bot…',
@@ -60,7 +61,10 @@ export class StudyPanel {
     setDataState(state) {
         this.dataState = state;
         if (state === 'loading') this.closePicker();
-        if (this.picker) this.picker.input.disabled = state !== 'ready';
+        if (this.picker) {
+            this.picker.input.disabled = state !== 'ready';
+            this.picker.note.hidden = state !== 'unavailable';
+        }
         this.render(this.view);
     }
 
@@ -91,7 +95,7 @@ export class StudyPanel {
         if (card) nodes.push(card);
         nodes.push(this.buildLearnRow(view && view.target));
         if (this.dataState === 'unavailable') {
-            nodes.push(el('p', 'study-note study-error', 'Opening data unavailable'));
+            nodes.push(el('p', 'study-note study-error', UNAVAILABLE_COPY));
         }
         if (view && view.target && view.studyMessage) {
             nodes.push(el('p', 'coach-status', `↳ ${view.studyMessage}`));
@@ -170,12 +174,14 @@ export class StudyPanel {
         row.appendChild(button('×', 'study-btn study-close', () => this.closePicker(),
             { title: 'Close (Esc)', ariaLabel: 'Close opening picker' }));
 
+        const note = el('p', 'study-note study-error', UNAVAILABLE_COPY);
+        note.hidden = this.dataState !== 'unavailable';
         const results = el('ul', 'study-results');
         const recentHeading = el('div', 'study-picker-heading', 'Recent');
         const recentList = el('ul', 'study-results study-recent');
 
-        wrap.append(row, results, recentHeading, recentList);
-        this.picker = { wrap, input, results, recentHeading, recentList };
+        wrap.append(row, note, results, recentHeading, recentList);
+        this.picker = { wrap, input, note, results, recentHeading, recentList };
         this.pickerHost.replaceChildren(wrap);
 
         this.renderResults();
