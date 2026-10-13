@@ -378,13 +378,14 @@ export class AnalysisService {
     }
 
 
+    // Resets the engine but never re-sends on its own: the caller (the coach) owns
+    // retries, so a late retry can't fill a newer request with an older position.
     recoverFromTimeout() {
-        const fenToRetry = this.lastFen;
         this.resetAnalyzingState();
-        this.pendingRetryFen = fenToRetry;
+        this.pendingRetryFen = null;
 
         if (this.onErrorCallback) {
-            this.onErrorCallback('Analysis stalled. Resetting engine and retrying...');
+            this.onErrorCallback('Analysis stalled. Resetting engine...');
         }
 
         if (this.port) {
@@ -397,7 +398,6 @@ export class AnalysisService {
         }
 
         this.scheduleReconnect();
-        this.retryPendingAnalysis();
     }
 
     clearAnalysisTimeout() {

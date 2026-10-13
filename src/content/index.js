@@ -263,6 +263,9 @@ class ChessAssistant {
 
         this.analysisService.onError((error) => {
             logger.warn('Engine error:', error);
+            // The coach owns retries (next position); the service must never
+            // re-send an older FEN on its own after a reconnect.
+            this.analysisService.pendingRetryFen = null;
             this.resetSearchTracking();
             this.rejectEngine(error);
         });
