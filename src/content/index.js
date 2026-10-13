@@ -10,26 +10,45 @@ import { OpeningExplorer } from './services/opening-explorer.js';
 import { Overlay } from './ui/overlay.js';
 import { MoveHighlighter } from './chess/move-highlighter.js';
 import { BoardParser } from './chess/board-parser.js';
-import { SELECTORS, STORAGE_KEYS } from '../shared/constants.js';
+import { LiveSync } from './chess/live-sync.js';
+import { ContextGate } from './context/context-gate.js';
+import { StudyPanel } from './ui/study-panel.js';
+import { CoachController } from './coach/coach-controller.js';
+import { OpeningTree } from './study/opening-tree.js';
+import { updateRecent, defaultStudyColor } from './study/study-recent.js';
+import { samePosition } from './study/study-view.js';
+import { STORAGE_KEYS, STUDY } from '../shared/constants.js';
 
 const logger = new Logger('Content');
+
+const isStudyTarget = (t) => !!t && typeof t.fen === 'string' && Array.isArray(t.moves)
+    && typeof t.eco === 'string' && typeof t.name === 'string';
+// The color always comes from the opening: the side that plays its last move.
+const asTarget = (t) => ({ eco: t.eco, name: t.name, moves: t.moves, fen: t.fen, color: defaultStudyColor(t.moves) });
 
 class ChessAssistant {
     constructor() {
         this.analysisService = new AnalysisService();
         this.openingExplorer = new OpeningExplorer();
-        this.overlay = new Overlay(this.analysisService);
-        this.moveObserver = null;
-        this.lastMoveCount = 0;
+        this.overlay = new Overlay();
+        this.gate = null;
+        this.liveSync = null;
+        this.contextVerdict = 'blocked';
+        this.position = null;
         this.analysisStartFEN = null;
-        this.analysisStartTurn = null;
-        this.analysisColor = null;
         this.topMoves = [];
-        this.currentAnalysisDepth = 0;
-        this.maxAnalysisDepth = 0;
-        this.repertoireLines = [];
-        this.highlightColor = null;
-        this.arrowColor = null;
+        this.engineLoading = false;
+        // R13: requestId of the search whose lines fill topMoves (null when none).
+        // The background tags engine output with the id of the search producing
+        // it; output with any other id (or null) is ignored.
+        this.analysisId = null;
+        this.coach = null;
+        this.studyTree = null;
+        this.studyPanel = null;
+        this.studyTarget = null;
+        this.studyRecent = [];
+        this.pendingEngine = null;
+        this.studyInitScheduled = false;
     }
 
     async initialize() {
@@ -39,178 +58,296 @@ class ChessAssistant {
         await this.openingExplorer.initialize();
         await this.delay(2000);
 
-        this.analysisService.connect();
         this.overlay.create();
-        this.overlay.setRepertoireLines(this.repertoireLines);
-        this.setupOverlayCallbacks();
+        this.overlay.onEnabledChange(() => this.forwardPosition());
+        this.createStudyPanel();
+        // The tree is attached later (initStudy); until then the coach works engine-only.
+        this.coach = new CoachController({
+            tree: null,
+            notes: {},
+            requestEngine: (fen) => this.requestEngine(fen),
+            cancelEngine: () => {
+                this.clearPendingEngine();
+                this.analysisService.stopAnalysis();
+            },
+            onUpdate: (view) => this.renderCoach(view)
+        });
+        this.coach.setTarget(this.studyTarget);
+
+        // The background port is opened only on a training verdict (applyVerdict).
+        this.startGate();
+
         this.setupAnalysisCallbacks();
         this.setupMoveObserver();
         this.setupStorageListener();
+        document.addEventListener('keydown', (event) => this.onKey(event));
 
         logger.log('Chess Assistant ready!');
+    }
+
+    // ── Coach ─────────────────────────────────────────────────────────────────
+
+    createStudyPanel() {
+        const root = document.getElementById('chess-assistant-study');
+        if (!root) return;
+        this.studyPanel = new StudyPanel(root, {
+            onPick: (target) => this.pickStudyTarget(asTarget(target)),
+            onStop: () => this.pickStudyTarget(null),
+            onSearch: (query) => this.studyTree ? this.studyTree.search(query, STUDY.SEARCH_LIMIT) : []
+        });
+        this.renderCoach();
+    }
+
+    // Build the tree once, on the first training verdict (never on blocked pages),
+    // deferred so the overlay paints before the synchronous build.
+    scheduleStudyInit() {
+        if (this.studyInitScheduled || !this.studyPanel || this.contextVerdict !== 'training') return;
+        this.studyInitScheduled = true;
+        setTimeout(() => this.initStudy(), 0);
+    }
+
+    async initStudy() {
+        try {
+            const notes = await this.openingExplorer.loadNotes();
+            const tree = OpeningTree.build(this.openingExplorer.entries);
+            logger.log(`Opening tree built: ${tree.size} openings, ${tree.skipped} skipped`);
+            this.studyTree = tree;
+            this.coach.setNotes(notes);
+            this.coach.setTree(tree);
+            this.studyPanel?.setDataState(tree.size ? 'ready' : 'unavailable');
+        } catch (error) {
+            logger.error('Study setup failed:', error);
+            this.studyPanel?.setDataState('unavailable');
+        }
+    }
+
+    renderCoach(view = this.coach?.view) {
+        const blocked = this.contextVerdict === 'blocked';
+        const v = view || { blocked, target: this.studyTarget, card: { kind: 'idle', move: null, alternatives: [] } };
+        this.studyPanel?.render(v, { recent: this.studyRecent });
+        const kind = v.card?.kind;
+        if (blocked || v.blocked || (kind !== 'move' && kind !== 'waiting')) {
+            MoveHighlighter.clearStudyArrows();
+            return;
+        }
+        MoveHighlighter.drawStudyArrows({
+            primaryUci: kind === 'move' ? v.card.move?.uci ?? null : null,
+            predictedUci: v.predictedUci ?? null
+        });
+    }
+
+    pickStudyTarget(target) {
+        this.studyTarget = target;
+        if (target) this.studyRecent = updateRecent(this.studyRecent, target);
+        this.coach?.setTarget(target);
+        const writes = [StorageService.set(STORAGE_KEYS.STUDY_TARGET, target)];
+        if (target) writes.push(StorageService.set(STORAGE_KEYS.STUDY_RECENT, this.studyRecent));
+        Promise.all(writes).catch((error) => logger.warn('Couldn\'t save study settings:', error));
+    }
+
+    // Only a synced position on a training page with the assistant ON reaches the coach.
+    // R11: analysis boards have no bot, so the side to move is the user there.
+    forwardPosition() {
+        let p = this.overlay.isEnabled ? this.position : null;
+        if (p && location.pathname.startsWith('/analysis')) p = { ...p, userColor: p.turn };
+        this.coach?.setPosition(p);
+    }
+
+    // Engine bridge for the coach: resolves with up to 3 lines, best first.
+    requestEngine(fen) {
+        const service = this.analysisService;
+        if (service.isBlocked) return Promise.reject(new Error('Analysis is blocked'));
+        return new Promise((resolve, reject) => {
+            const entry = { fen, resolve, reject, softTimer: null, requestId: null };
+            this.clearPendingEngine();
+            this.pendingEngine = entry;
+            this.armSoftLimit(entry, 2);
+            setTimeout(async () => {
+                // Re-check the URL first (deferred: a verdict change re-enters the coach).
+                if (this.pendingEngine !== entry || this.gate.check() !== 'training') return;
+                if (service.isAnalyzing && samePosition(service.lastFen, fen)) {
+                    entry.requestId = this.analysisId; // that search already serves this position
+                    return;
+                }
+                const connected = !service.isBlocked && await service.ensureConnected();
+                if (this.pendingEngine !== entry) return;
+                if (!connected || !service.sendAnalyzeRequest(fen)) {
+                    this.clearPendingEngine();
+                    reject(new Error('Engine request failed'));
+                    return;
+                }
+                entry.requestId = this.analysisId;
+            }, 0);
+        });
+    }
+
+    // R12: the pure-JS engine can be slow; after the soft limit, answer with the
+    // deepest lines of the current search so far (re-armed once if it has none).
+    armSoftLimit(entry, tries) {
+        entry.softTimer = setTimeout(() => {
+            entry.softTimer = null;
+            if (this.pendingEngine !== entry) return;
+            const current = this.contextVerdict === 'training' && entry.requestId !== null
+                && entry.requestId === this.analysisId && samePosition(entry.fen, this.analysisStartFEN);
+            if (current && this.topMoves.some(m => m !== undefined)) {
+                logger.log('Engine soft limit reached, answering with the deepest lines so far');
+                this.deliverLines();
+                // Its later bestmove (if any) finds no pending request and resolves nothing.
+                this.analysisService.stopAnalysis();
+            } else if (tries > 1) {
+                this.armSoftLimit(entry, tries - 1);
+            }
+        }, STUDY.ENGINE_SOFT_LIMIT_MS);
+    }
+
+    clearPendingEngine() {
+        const pending = this.pendingEngine;
+        this.pendingEngine = null;
+        if (pending?.softTimer) clearTimeout(pending.softTimer);
+        return pending;
+    }
+
+    onKey(event) {
+        if (event.key !== 'Escape' || !this.studyPanel?.pickerOpen) return;
+        if (this.overlay.isHidden || this.overlay.isCollapsed) return;
+        this.studyPanel.closePicker();
+        event.preventDefault();
+    }
+
+    startGate() {
+        this.gate = new ContextGate({
+            getUrl: () => location.href,
+            onChange: (verdict) => this.applyVerdict(verdict)
+        });
+
+        // The isolated world cannot see the page's own pushState calls, so the
+        // gate also re-checks on popstate, its 1 s poll, and before any analysis.
+        window.addEventListener('popstate', () => this.gate.check());
+
+        this.gate.start();
+    }
+
+    applyVerdict(verdict) {
+        this.contextVerdict = verdict;
+        const blocked = verdict === 'blocked';
+        if (blocked) {
+            this.analysisService.setBlocked(true);
+            this.analysisService.stopAnalysis();
+            // Close the port: no engine, offscreen document or keep-alives on
+            // blocked pages, and no port to steal another tab's results.
+            this.analysisService.disconnect();
+            MoveHighlighter.clearAll();
+            this.topMoves = [];
+            this.analysisStartFEN = null;
+            this.analysisId = null;
+            // Forget the (possibly human-game) position so an unblock can't reuse it.
+            this.position = null;
+            this.overlay.setBlocked(true);
+            MoveHighlighter.clearStudyArrows();
+        } else {
+            this.analysisService.setBlocked(false);
+            this.analysisService.connect(); // idempotent
+            this.overlay.setBlocked(false);
+            // Re-read the board so guidance starts from the current position.
+            const fresh = this.liveSync?.snapshot() ?? null;
+            if (fresh) this.position = fresh;
+        }
+        if (this.coach) {
+            this.coach.setBlocked(blocked);
+            this.forwardPosition();
+        } else {
+            this.renderCoach();
+        }
+        this.scheduleStudyInit();
     }
 
     async loadSettings() {
         const settings = await StorageService.getMultiple([
             STORAGE_KEYS.DEPTH,
             STORAGE_KEYS.ENABLED,
-            STORAGE_KEYS.AUTO_ANALYZE,
-            STORAGE_KEYS.REPERTOIRE_LINES,
             STORAGE_KEYS.HIGHLIGHT_COLOR,
-            STORAGE_KEYS.ARROW_COLOR
+            STORAGE_KEYS.ARROW_COLOR,
+            STORAGE_KEYS.STUDY_TARGET,
+            STORAGE_KEYS.STUDY_RECENT
         ]);
 
         this.analysisService.setDepth(settings.depth);
-        this.overlay.isEnabled = settings.enabled;
-        this.overlay.autoAnalyze = settings.autoAnalyze;
-        this.repertoireLines = settings.repertoireLines || [];
-        this.highlightColor = settings.highlightColor;
-        this.arrowColor = settings.arrowColor;
+        this.overlay.isEnabled = settings.enabled !== false;
+        this.studyTarget = isStudyTarget(settings.studyTarget) ? asTarget(settings.studyTarget) : null;
+        this.studyRecent = Array.isArray(settings.studyRecent) ? settings.studyRecent.filter(isStudyTarget).map(asTarget) : [];
         MoveHighlighter.setColors({
-            highlightColor: this.highlightColor,
-            arrowColor: this.arrowColor
+            highlightColor: settings.highlightColor,
+            arrowColor: settings.arrowColor
         });
-        this.overlay.refreshControls();
-    }
-
-    setupOverlayCallbacks() {
-        this.overlay.onSaveRepertoire(() => this.saveCurrentLineToRepertoire());
-        this.overlay.onRemoveRepertoire((index) => this.removeRepertoireLine(index));
-    }
-
-    saveCurrentLineToRepertoire() {
-        if (!this.topMoves.length) {
-            this.overlay.updateMessage('Run analysis first to save a line');
-            return;
-        }
-
-        const bestLine = this.topMoves[0];
-        const opening = this.openingExplorer.findOpening({
-            fen: this.analysisService.lastFen,
-            playedMoves: this.getPlayedMoves()
-        });
-
-        const entry = {
-            eco: opening.eco,
-            name: opening.name,
-            line: bestLine.move,
-            fen: this.analysisService.lastFen,
-            playedMoves: opening.playedMoves,
-            savedAt: Date.now()
-        };
-
-        const duplicate = this.repertoireLines.some(
-            item => item.fen === entry.fen && item.line === entry.line
-        );
-        if (duplicate) {
-            this.overlay.updateMessage('This line is already saved in repertoire');
-            return;
-        }
-
-        this.repertoireLines = [entry, ...this.repertoireLines].slice(0, 50);
-        StorageService.set(STORAGE_KEYS.REPERTOIRE_LINES, this.repertoireLines)
-            .then(() => {
-                this.overlay.setRepertoireLines(this.repertoireLines);
-                this.overlay.updateMessage('Saved line to repertoire');
-            })
-            .catch(() => this.overlay.showError('Could not save repertoire line'));
-    }
-
-    removeRepertoireLine(index) {
-        if (index < 0 || index >= this.repertoireLines.length) return;
-
-        this.repertoireLines.splice(index, 1);
-        StorageService.set(STORAGE_KEYS.REPERTOIRE_LINES, this.repertoireLines)
-            .then(() => this.overlay.setRepertoireLines(this.repertoireLines))
-            .catch(() => this.overlay.showError('Could not update repertoire'));
     }
 
     setupAnalysisCallbacks() {
-        this.analysisService.onMove((message) => {
-            this.handleStockfishMessage(message);
+        this.analysisService.onMove((message, searchId) => {
+            this.handleStockfishMessage(message, searchId);
         });
 
         this.analysisService.onAnalyzeStart(() => {
+            this.analysisId = this.analysisService.currentRequestId;
             this.topMoves = [];
-            this.currentAnalysisDepth = 0;
-            this.maxAnalysisDepth = this.analysisService.depth;
-
             this.analysisStartFEN = this.analysisService.lastFen;
-            this.analysisStartTurn = this.analysisStartFEN.split(' ')[1];
-            this.analysisColor = this.analysisStartTurn === 'w' ? 'white' : 'black';
-
             logger.log('Analysis started for FEN:', this.analysisStartFEN);
-            logger.log('Analysis started, turn was:', this.analysisStartTurn);
-            logger.log('Analyzing color:', this.analysisColor);
-
-            MoveHighlighter.clearAll();
         });
 
         this.analysisService.onError((error) => {
-            this.overlay.showError(error);
+            logger.warn('Engine error:', error);
+            // The coach owns retries (next position); the service must never
+            // re-send an older FEN on its own after a reconnect.
+            this.analysisService.pendingRetryFen = null;
+            this.analysisId = null;
+            this.rejectEngine(error);
         });
 
-        // Show a friendly status while the WASM engine is still loading.
-        this.analysisService.onLoading((status) => {
-            this.overlay.updateMessage('⏳ ' + status);
-        });
+        this.analysisService.onLoading(() => this.setEngineLoading(true));
     }
 
-    handleStockfishMessage(message) {
-        // Show intermediate moves as they arrive (before bestmove)
-        if (message.includes('info depth') && message.includes('multipv')) {
-            // Extract and track depth
-            const depthMatch = message.match(/depth (\d+)/);
-            if (depthMatch) {
-                const depth = parseInt(depthMatch[1], 10);
-                if (depth > this.currentAnalysisDepth) {
-                    this.currentAnalysisDepth = depth;
-                }
-            }
+    rejectEngine(reason) {
+        const pending = this.clearPendingEngine();
+        pending?.reject(new Error(String(reason)));
+    }
 
+    setEngineLoading(loading) {
+        if (loading === this.engineLoading) return;
+        this.engineLoading = loading;
+        this.coach?.setEngineLoading(loading);
+    }
+
+    handleStockfishMessage(message, searchId = null) {
+        if (this.contextVerdict !== 'training') return;
+        this.setEngineLoading(false);
+
+        // Only output of our current search counts (stopped/late/duplicate output,
+        // or another page's search, carries another id or null).
+        if (searchId === null || searchId !== this.analysisId) return;
+        const isBest = message.includes('bestmove');
+        if (!isBest && !(message.includes('info depth') && message.includes('multipv'))) return;
+        if (!this.isAnalysisStillValid()) {
+            // The board moved on: fail now so the card doesn't wait for the timeout.
+            logger.warn('Position changed during analysis, discarding');
+            this.analysisService.stopAnalysis();
+            // Only the request this search serves; a newer deferred request survives.
+            if (this.pendingEngine && this.pendingEngine.requestId === this.analysisId) {
+                this.rejectEngine('Position changed during analysis');
+            }
+            this.analysisId = null;
+            return;
+        }
+        if (isBest) {
+            this.resolveEngine();
+            this.analysisId = null;
+        } else {
             this.parseMultiPVInfo(message);
-
-            // Check if position has changed before displaying
-            if (!this.isAnalysisStillValid()) {
-                logger.warn('Position changed during analysis, stopping display');
-                this.stopCurrentAnalysis();
-                return;
-            }
-
-            // Update UI with partial results every few depths
-            // Show partial results with depth indicator
-            if (this.topMoves.length > 0) {
-                const validMoves = this.topMoves
-                    .filter(m => m !== undefined)
-                    .slice(0, 3);
-                if (validMoves.length > 0) {
-                    this.overlay.displayMoves(
-                        validMoves,
-                        this.currentAnalysisDepth,
-                        this.maxAnalysisDepth,
-                        this.analysisColor
-                    );
-                }
-            }
-        } else if (message.includes('bestmove')) {
-            // Check one more time before displaying final results
-            if (!this.isAnalysisStillValid()) {
-                logger.warn('Position changed, discarding analysis results');
-                this.stopCurrentAnalysis();
-                return;
-            }
-            // Show final results without depth (or keep it)
-            this.currentAnalysisDepth = 0;
-            this.displayResults();
         }
     }
 
     /**
-    * Parse MultiPV info and track moves
-    * Only process if it's actually the human's turn
+    * Parse MultiPV info and keep the deepest line per multipv slot
     */
     parseMultiPVInfo(message) {
-        if (!this.analysisService.isAnalyzing) return;
         const depthMatch = message.match(/depth (\d+)/);
         const multipvMatch = message.match(/multipv (\d+)/);
         const scoreMatch = message.match(/score cp (-?\d+)/);
@@ -252,155 +389,44 @@ class ChessAssistant {
         }
     }
 
-    displayResults() {
-        if (this.topMoves.length > 0) {
-            const validMoves = this.topMoves.filter(m => m !== undefined);
-            validMoves.sort((a, b) => a.multipv - b.multipv);
-            this.topMoves = validMoves.slice(0, 3);
-            this.overlay.displayMoves(this.topMoves, 0, 0);
-            this.updateOpeningExplorer();
-        } else {
-            this.overlay.showError('No moves found');
-        }
-
+    resolveEngine() {
+        this.deliverLines();
         this.analysisService.setAnalyzing(false);
     }
 
-    getPlayedMoves() {
-        const nodes = document.querySelectorAll(
-            '.move-list .node, wc-simple-move-list .node, rm6 l4x kwdb'
-        );
-        const moves = [];
-
-        nodes.forEach((node) => {
-            const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!text || /^\d+\.?$/.test(text) || text === '...') return;
-            moves.push(text);
-        });
-
-        return moves;
-    }
-
-    updateOpeningExplorer() {
-        const opening = this.openingExplorer.findOpening({
-            fen: this.analysisService.lastFen,
-            playedMoves: this.getPlayedMoves()
-        });
-
-        const suggestedLines = [...(opening.lines || [])];
-        if (this.topMoves[0]) {
-            suggestedLines.unshift(`Engine best move here: ${this.topMoves[0].move}`);
+    // Resolve the pending request with up to 3 lines, best first, if they are for its position.
+    deliverLines() {
+        const lines = this.topMoves.filter(m => m !== undefined).sort((a, b) => a.multipv - b.multipv).slice(0, 3);
+        this.topMoves = lines;
+        const pending = this.pendingEngine;
+        if (lines.length && pending && pending.requestId !== null && pending.requestId === this.analysisId
+            && samePosition(pending.fen, this.analysisStartFEN)) {
+            this.clearPendingEngine();
+            pending.resolve(lines.map(m => ({
+                uci: m.move, scoreText: this.overlay.formatScore(m), depth: m.depth,
+                score: m.score, mateIn: m.mateIn
+            })));
         }
-
-        this.overlay.setOpening({
-            name: `${opening.eco} • ${opening.name}`,
-            lines: suggestedLines.slice(0, 4),
-            playedMoves: opening.playedMoves
-        });
     }
 
     setupMoveObserver() {
-        const moveList = document.querySelector(SELECTORS.MOVE_LIST);
-        if (!moveList) {
-            logger.warn('Move list not found, retrying...');
-            setTimeout(() => this.setupMoveObserver(), 1000);
-            return;
-        }
-
-        logger.log('Setting up move observer');
-
-        this.moveObserver = new MutationObserver(() => {
-            this.moveListCache = null;
-            if (!this.overlay.autoAnalyze || !this.overlay.isEnabled) return;
-
-            const currentMoveCount = this.getMoveCount();
-            if (currentMoveCount > this.lastMoveCount) {
-                this.lastMoveCount = currentMoveCount;
-                logger.log('New move detected, auto-analyzing...');
-
-                // STOP any ongoing analysis for the old position
-                this.stopCurrentAnalysis();
-
-                // Now analyze the new position
-                if (!this.analysisService.isAnalyzing) {
-                    this.overlay.analyze();
-                }
-            }
-        });
-
-        this.moveObserver.observe(moveList, { childList: true, subtree: true });
-        this.lastMoveCount = this.getMoveCount();
+        this.liveSync = new LiveSync({ onPositionChanged: (p) => this.onPositionChanged(p) });
+        this.liveSync.start();
     }
 
-    // Stop current analysis and reset UI
-    stopCurrentAnalysis() {
-        logger.log('Stopping previous analysis for old position');
-
-        // Stop the analysis in the engine
-        this.analysisService.stopAnalysis();
-
-        // Reset overlay UI
-        this.currentAnalysisDepth = 0;
-        this.topMoves = [];
-        this.analysisStartFEN = null;
-        this.analysisStartTurn = null;
-        this.analysisColor = null;
-        MoveHighlighter.clearAll();
-
-        // Clear the moves display
-        this.overlay.updateMessage('Position changed, analyzing new position...');
+    onPositionChanged(p) {
+        // Classify first: positions from a blocked page are never stored.
+        if (this.gate.check() !== 'training') return;
+        this.position = p;
+        this.forwardPosition();
     }
 
-    /**
-     * Check if the current board position matches when analysis started
-     * If the position changed (opponent moved), analysis is no longer valid
-     */
+    // The board still shows the analyzed position (placement + side to move; the
+    // analyzed FEN comes from LiveSync, whose castling field BoardParser can't match).
     isAnalysisStillValid() {
         const currentFEN = BoardParser.getCurrentFEN();
-        if (!currentFEN || !this.analysisStartFEN) {
-            logger.warn('Cannot validate analysis: missing FEN');
-            return true; // Assume valid if we can't check
-        }
-
-        // Get current turn
-        const currentTurn = currentFEN.split(' ')[1];
-        const startTurn = this.analysisStartTurn;
-
-        // If turn changed, position changed!
-        if (currentTurn !== startTurn) {
-            logger.warn(
-                `Turn changed during analysis! Started: ${startTurn}, Now: ${currentTurn}`
-            );
-            return false;
-        }
-
-        // Also compare the full FEN position (not move counter)
-        const currentPos = currentFEN.split(' ').slice(0, 4).join(' ');
-        const startPos = this.analysisStartFEN.split(' ').slice(0, 4).join(' ');
-
-        if (currentPos !== startPos) {
-            logger.warn('Position changed during analysis');
-            logger.warn('Started:', startPos);
-            logger.warn('Now:', currentPos);
-            return false;
-        }
-
-        return true;
-    }
-
-    getMoveCount() {
-        // Cache the selector results to avoid repeated DOM traversals
-        if (!this.moveListCache) {
-            this.moveListCache = {
-                chess_com: document.querySelectorAll('.move-list .node'),
-                lichess: document.querySelectorAll('rm6 l4x kwdb')
-            };
-        }
-
-        const chessComCount = this.moveListCache.chess_com.length;
-        if (chessComCount > 0) return chessComCount;
-
-        return this.moveListCache.lichess.length;
+        if (!currentFEN || !this.analysisStartFEN) return true; // can't check
+        return samePosition(currentFEN, this.analysisStartFEN);
     }
 
     setupStorageListener() {
@@ -409,25 +435,13 @@ class ChessAssistant {
                 this.analysisService.setDepth(changes.depth.newValue);
             }
             if (changes.enabled !== undefined) {
-                this.overlay.isEnabled = changes.enabled.newValue;
-                this.overlay.updateEnabledButton();
-            }
-            if (changes.autoAnalyze !== undefined) {
-                this.overlay.autoAnalyze = changes.autoAnalyze.newValue;
-                this.overlay.updateAutoButton();
-            }
-            if (changes.repertoireLines !== undefined) {
-                this.repertoireLines = changes.repertoireLines.newValue || [];
-                this.overlay.setRepertoireLines(this.repertoireLines);
+                this.overlay.setEnabled(changes.enabled.newValue !== false);
             }
             if (changes.highlightColor !== undefined || changes.arrowColor !== undefined) {
-                this.highlightColor = changes.highlightColor
-                    ? changes.highlightColor.newValue : this.highlightColor;
-                this.arrowColor = changes.arrowColor
-                    ? changes.arrowColor.newValue : this.arrowColor;
+                // setColors ignores missing values.
                 MoveHighlighter.setColors({
-                    highlightColor: this.highlightColor,
-                    arrowColor: this.arrowColor
+                    highlightColor: changes.highlightColor?.newValue,
+                    arrowColor: changes.arrowColor?.newValue
                 });
             }
         });

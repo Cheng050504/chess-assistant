@@ -8,10 +8,11 @@ export const APP_VERSION = '1.0.0';
 export const DEFAULT_SETTINGS = {
     depth: 15,
     enabled: true,
-    autoAnalyze: true,
     repertoireLines: [],
     highlightColor: '#9bc700',
-    arrowColor: '#9bc700'
+    arrowColor: '#9bc700',
+    studyTarget: null,
+    studyRecent: []
 };
 
 export const ANALYSIS_DEPTH = {
@@ -54,8 +55,16 @@ export const MESSAGE_TYPES = {
 export const STORAGE_KEYS = {
     DEPTH: 'depth',
     ENABLED: 'enabled',
-    AUTO_ANALYZE: 'autoAnalyze',
     REPERTOIRE_LINES: 'repertoireLines',
     HIGHLIGHT_COLOR: 'highlightColor',
-    ARROW_COLOR: 'arrowColor'
+    ARROW_COLOR: 'arrowColor',
+    STUDY_TARGET: 'studyTarget',
+    STUDY_RECENT: 'studyRecent'
+};
+
+export const STUDY = {
+    ENGINE_TIMEOUT_MS: 30000,
+    ENGINE_SOFT_LIMIT_MS: 10000,
+    RECENT_MAX: 10,
+    SEARCH_LIMIT: 20
 };

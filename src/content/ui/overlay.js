@@ -1,31 +1,21 @@
 /**
- * Overlay UI component
+ * Overlay UI component: draggable panel with the header (ON/OFF, −, ✕) and
+ * the coach section (#chess-assistant-study), rendered by StudyPanel.
  */
 
 import { Logger } from '../../shared/logger.js';
-import { SELECTORS } from '../../shared/constants.js';
-import { MoveHighlighter } from '../chess/move-highlighter.js';
 
 const logger = new Logger('Overlay');
 
 export class Overlay {
-    constructor(analysisService) {
-        this.analysisService = analysisService;
+    constructor() {
         this.element = null;
         this.launcher = null;
         this.isEnabled = true;
-        this.autoAnalyze = true;
+        this.isBlocked = false;
         this.isCollapsed = false;
         this.isHidden = false;
-        this.topMoves = [];
-        this.currentOpening = {
-            name: 'Opening not recognized yet',
-            lines: ['Run analysis to detect opening context'],
-            playedMoves: []
-        };
-        this.repertoireLines = [];
-        this.onSaveRepertoireCallback = null;
-        this.onRemoveRepertoireCallback = null;
+        this.onEnabledChangeCallback = null;
         this.dragState = {
             isDragging: false,
             offsetX: 0,
@@ -53,13 +43,12 @@ export class Overlay {
         this.setInitialPosition();
         this.attachEventListeners();
         this.refreshControls();
-        this.renderOpeningExplorer();
         logger.log('Overlay created');
     }
 
     refreshControls() {
         this.updateEnabledButton();
-        this.updateAutoButton();
+        this.setBlocked(this.isBlocked);
     }
 
     getTemplate() {
@@ -67,24 +56,21 @@ export class Overlay {
             <div class="chess-assistant-header">
                 <span>♟️ Chess Assistant</span>
                 <button id="chess-assistant-toggle" class="toggle-btn">ON</button>
-                <button id="chess-assistant-auto" class="auto-btn" title="Auto-analyze after each move">AUTO</button>
-                <button id="chess-assistant-analyze" class="analyze-btn">Analyze</button>
                 <button id="chess-assistant-collapse" class="icon-btn" title="Collapse overlay">−</button>
                 <button id="chess-assistant-hide" class="icon-btn" title="Hide overlay">✕</button>
             </div>
-            <div id="chess-assistant-moves" class="moves-container">
-                <div class="loading">Auto-analysis enabled</div>
-            </div>
-            <div id="chess-assistant-opening" class="opening-container"></div>
+            <div id="chess-assistant-study" class="study-container" role="region" aria-label="Best move"></div>
         `;
     }
 
     attachEventListeners() {
-        document.getElementById('chess-assistant-toggle').addEventListener('click', () => this.toggleEnabled());
-        document.getElementById('chess-assistant-auto').addEventListener('click', () => this.toggleAutoAnalyze());
-        document.getElementById('chess-assistant-analyze').addEventListener('click', () => this.analyze());
-        document.getElementById('chess-assistant-collapse').addEventListener('click', () => this.toggleCollapse());
-        document.getElementById('chess-assistant-hide').addEventListener('click', () => this.hideOverlay());
+        const on = (id, handler) => {
+            const node = document.getElementById(id);
+            if (node) node.addEventListener('click', handler);
+        };
+        on('chess-assistant-toggle', () => this.toggleEnabled());
+        on('chess-assistant-collapse', () => this.toggleCollapse());
+        on('chess-assistant-hide', () => this.hideOverlay());
         this.launcher.addEventListener('click', () => this.showOverlay());
 
         const header = this.element.querySelector('.chess-assistant-header');
@@ -92,78 +78,13 @@ export class Overlay {
             header.addEventListener('mousedown', (event) => this.startDrag(event));
         }
 
-        this.element.addEventListener('click', (event) => {
-            const saveBtn = event.target.closest('#chess-assistant-save-line');
-            if (saveBtn && this.onSaveRepertoireCallback) {
-                this.onSaveRepertoireCallback();
-            }
-
-            const removeBtn = event.target.closest('[data-repertoire-index]');
-            if (removeBtn && this.onRemoveRepertoireCallback) {
-                const index = parseInt(removeBtn.getAttribute('data-repertoire-index'), 10);
-                if (!Number.isNaN(index)) {
-                    this.onRemoveRepertoireCallback(index);
-                }
-            }
-        });
-
         document.addEventListener('mousemove', (event) => this.onDrag(event));
         document.addEventListener('mouseup', () => this.stopDrag());
         window.addEventListener('resize', () => this.handleResize());
     }
 
-    onSaveRepertoire(callback) {
-        this.onSaveRepertoireCallback = callback;
-    }
-
-    onRemoveRepertoire(callback) {
-        this.onRemoveRepertoireCallback = callback;
-    }
-
-    setOpening(opening) {
-        this.currentOpening = opening;
-        this.renderOpeningExplorer();
-    }
-
-    setRepertoireLines(lines) {
-        this.repertoireLines = lines;
-        this.renderOpeningExplorer();
-    }
-
-    renderOpeningExplorer() {
-        const container = document.getElementById('chess-assistant-opening');
-        if (!container) return;
-
-        const lines = (this.currentOpening.lines || [])
-            .map(line => `<li>${line}</li>`)
-            .join('');
-
-        const playedMoves = (this.currentOpening.playedMoves || []).slice(-10).join(' ');
-        const repertoireItems = this.repertoireLines.length
-            ? this.repertoireLines
-                .slice(0, 5)
-                .map((item, index) => `
-                    <li>
-                        <span>${item.name}: ${item.line}</span>
-                        <button class="repertoire-remove" data-repertoire-index="${index}" title="Remove line">×</button>
-                    </li>
-                `)
-                .join('')
-            : '<li class="repertoire-empty">No saved repertoire lines yet</li>';
-
-        container.innerHTML = `
-            <div class="opening-block">
-                <div class="opening-title">📚 Opening Explorer</div>
-                <div class="opening-name">${this.currentOpening.name}</div>
-                <div class="opening-played" title="Detected player moves">${playedMoves || 'No moves detected yet'}</div>
-                <ul class="opening-lines">${lines}</ul>
-                <button id="chess-assistant-save-line" class="save-line-btn">Save best line</button>
-            </div>
-            <div class="repertoire-block">
-                <div class="opening-title">⭐ Repertoire</div>
-                <ul class="repertoire-list">${repertoireItems}</ul>
-            </div>
-        `;
+    onEnabledChange(callback) {
+        this.onEnabledChangeCallback = callback;
     }
 
     setInitialPosition() {
@@ -262,29 +183,16 @@ export class Overlay {
     }
 
     toggleEnabled() {
-        this.isEnabled = !this.isEnabled;
-        this.updateEnabledButton();
-
-        this.updateMessage(
-            this.isEnabled
-                ? (this.autoAnalyze ? 'Auto-analysis enabled' : 'Click "Analyze" to get move suggestions')
-                : 'Assistant disabled'
-        );
-
+        this.setEnabled(!this.isEnabled);
         chrome.storage.sync.set({ enabled: this.isEnabled });
     }
 
-    toggleAutoAnalyze() {
-        this.autoAnalyze = !this.autoAnalyze;
-        this.updateAutoButton();
-
-        this.updateMessage(
-            this.autoAnalyze
-                ? 'Auto-analysis enabled'
-                : 'Click "Analyze" to get move suggestions'
-        );
-
-        chrome.storage.sync.set({ autoAnalyze: this.autoAnalyze });
+    setEnabled(enabled) {
+        enabled = !!enabled;
+        const changed = enabled !== this.isEnabled;
+        this.isEnabled = enabled;
+        this.updateEnabledButton();
+        if (changed && this.onEnabledChangeCallback) this.onEnabledChangeCallback(enabled);
     }
 
     updateEnabledButton() {
@@ -293,109 +201,6 @@ export class Overlay {
 
         btn.textContent = this.isEnabled ? 'ON' : 'OFF';
         btn.classList.toggle('off', !this.isEnabled);
-    }
-
-    updateAutoButton() {
-        const btn = document.getElementById('chess-assistant-auto');
-        if (!btn) return;
-
-        btn.textContent = this.autoAnalyze ? 'AUTO' : 'MANUAL';
-        btn.classList.toggle('off', !this.autoAnalyze);
-    }
-
-    async analyze() {
-        if (!this.isEnabled) return;
-
-        this.showLoading();
-        await this.analysisService.analyze();
-    }
-
-    /**
-   * Display moves with optional depth indicator
-   * @param {Array} moves - Move data array
-   * @param {number} currentDepth - Current analysis depth (0 = final results)
-   * @param {number} maxDepth - Target analysis depth
-   */
-    displayMoves(moves, currentDepth = 0, maxDepth = 0, color = null) {
-        const container = document.getElementById('chess-assistant-moves');
-        if (!container) return;
-
-        if (moves.length === 0) {
-            container.innerHTML = '<div class="loading">No moves found</div>';
-            return;
-        }
-
-        // Build depth progress indicator
-        let depthHTML = '';
-        if (currentDepth > 0 && maxDepth > 0) {
-            const progress = Math.round((currentDepth / maxDepth) * 100);
-
-            let colorLabel = '';
-            let colorClass = '';
-            if (color === 'white') {
-                colorLabel = '♔ White';
-                colorClass = 'color-white';
-            } else if (color === 'black') {
-                colorLabel = '♚ Black';
-                colorClass = 'color-black';
-            }
-
-            depthHTML = `
-                <div class="depth-indicator" ${colorClass}>
-                    <div class="depth-label">
-                        <span class="color-name">${colorLabel}</span>
-                        <span class="depth-current">${currentDepth}</span>
-                        <span class="depth-separator">/</span>
-                        <span class="depth-max">${maxDepth}</span>
-                    </div>
-                    <div class="depth-bar-container">
-                        <div class="depth-bar-fill" style="width: ${progress}%"></div>
-                    </div>
-                </div>
-            `;
-        }
-
-        const medals = ['🥇', '🥈', '🥉'];
-        let html = '';
-
-        moves.forEach((moveData, index) => {
-            const scoreStr = this.formatScore(moveData);
-            const displayMove = this.getDisplayMove(moveData.move);
-            html += `
-                <div class="move-item" data-move="${moveData.move}" title="UCI: ${moveData.move}">
-                    <span class="medal">${medals[index]}</span>
-                    <span class="move">${displayMove}</span>
-                    <span class="score">${scoreStr}</span>
-                </div>
-            `;
-        });
-
-        container.innerHTML = depthHTML + html;
-
-        container.querySelectorAll('.move-item').forEach(item => {
-            item.addEventListener('mouseenter', () => {
-                const move = item.getAttribute('data-move');
-                MoveHighlighter.highlight(move);
-            });
-
-            item.addEventListener('mouseleave', () => {
-                MoveHighlighter.clearAll();
-            });
-        });
-    }
-
-    getDisplayMove(uciMove) {
-        return uciMove;
-    }
-
-    mirrorSquare(square) {
-        const fileCode = square.charCodeAt(0) - 96;
-        const rank = Number.parseInt(square[1], 10);
-        if (!Number.isFinite(fileCode) || !Number.isFinite(rank)) return square;
-
-        const mirroredFile = String.fromCharCode(96 + (9 - fileCode));
-        const mirroredRank = String(9 - rank);
-        return `${mirroredFile}${mirroredRank}`;
     }
 
     formatScore(moveData) {
@@ -412,21 +217,10 @@ export class Overlay {
         return moveData.score > 0 ? `+${moveData.score.toFixed(2)}` : moveData.score.toFixed(2);
     }
 
-    showLoading() {
-        this.updateMessage('Analyzing position...');
-    }
-
-    showError(message) {
-        const container = document.getElementById('chess-assistant-moves');
-        if (container) {
-            container.innerHTML = `<div class="loading" style="color: #ff6b6b;">${message}</div>`;
-        }
-    }
-
-    updateMessage(message) {
-        const container = document.getElementById('chess-assistant-moves');
-        if (container) {
-            container.innerHTML = `<div class="loading">${message}</div>`;
-        }
+    // The blocked copy itself is rendered by the coach section.
+    setBlocked(blocked) {
+        this.isBlocked = blocked;
+        if (!this.element) return;
+        this.element.classList.toggle('chess-assistant-blocked', blocked);
     }
 }

@@ -14,6 +14,10 @@ export class MoveHighlighter {
     };
 
     static overlayHostId = 'chess-assistant-board-overlay-host';
+    static studyHostId = 'chess-assistant-study-arrow-host';
+    static studyArrowArgs = null;
+    static studyRedrawTimer = null;
+    static studyListenerInstalled = false;
 
     /**
      * Set highlight and arrow colors
@@ -90,12 +94,12 @@ export class MoveHighlighter {
             || cgWrapClass.includes('orientation-black');
     }
 
-    static getOverlayRoot(boardState) {
-        let host = document.getElementById(this.overlayHostId);
+    static getOverlayRoot(boardState, hostId = this.overlayHostId) {
+        let host = document.getElementById(hostId);
 
         if (!host) {
             host = document.createElement('div');
-            host.id = this.overlayHostId;
+            host.id = hostId;
             host.style.position = 'fixed';
             host.style.pointerEvents = 'none';
             host.style.zIndex = '2147483646';
@@ -193,14 +197,18 @@ export class MoveHighlighter {
     /**
      * Draw arrow on the board
      * @param {string} uci - UCI move notation
+     * @param {Object} boardState
+     * @param {'solid'|'dashed'} [style='solid']
+     * @param {string} [hostId] - overlay host to draw into (defaults to analysis host)
+     * @returns {SVGElement|undefined} the created SVG
      */
-    static drawArrow(uci, boardState) {
-        const layer = this.getOverlayRoot(boardState);
-        if (!layer) return;
+    static drawArrow(uci, boardState, style = 'solid', hostId = this.overlayHostId) {
+        const layer = this.getOverlayRoot(boardState, hostId);
+        if (!layer) return undefined;
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 100 100');
-        svg.setAttribute('class', 'chess-assistant-arrow-layer');
+        svg.setAttribute('class', `chess-assistant-arrow-layer chess-assistant-arrow-${style}`);
 
         const fromFile = FILES[uci[0]];
         const fromRank = parseInt(uci[1], 10) - 1;
@@ -212,8 +220,65 @@ export class MoveHighlighter {
         const toX = boardState.isFlipped ? (7 - toFile) * 12.5 + 6.25 : toFile * 12.5 + 6.25;
         const toY = boardState.isFlipped ? toRank * 12.5 + 6.25 : (7 - toRank) * 12.5 + 6.25;
 
-        this.createArrow(svg, fromX, fromY, toX, toY);
+        this.createArrow(svg, fromX, fromY, toX, toY, style);
         layer.appendChild(svg);
+        return svg;
+    }
+
+    /**
+     * Draw study arrows (solid primary, dashed predicted reply) in their own host.
+     * @param {{primaryUci: string|null, predictedUci: string|null}} args
+     */
+    static drawStudyArrows({ primaryUci = null, predictedUci = null } = {}) {
+        this.studyArrowArgs = { primaryUci, predictedUci };
+        this.installStudyRedrawListener();
+        this.removeStudyHost();
+
+        try {
+            const board = this.getBoard();
+            if (!board) return;
+
+            const boardState = this.getBoardState(board);
+            [[primaryUci, 'solid'], [predictedUci, 'dashed']].forEach(([uci, style]) => {
+                if (!uci) return;
+                const svg = this.drawArrow(uci, boardState, style, this.studyHostId);
+                if (svg) svg.classList.add('chess-assistant-study-arrow');
+            });
+        } catch (error) {
+            logger.error('Error drawing study arrows:', error);
+        }
+    }
+
+    /**
+     * Remove study arrows and forget the remembered arguments
+     */
+    static clearStudyArrows() {
+        this.studyArrowArgs = null;
+        this.removeStudyHost();
+    }
+
+    static removeStudyHost() {
+        const host = document.getElementById(this.studyHostId);
+        if (host) {
+            host.remove();
+        }
+    }
+
+    static installStudyRedrawListener() {
+        if (this.studyListenerInstalled || typeof window === 'undefined') return;
+        this.studyListenerInstalled = true;
+
+        const onChange = () => {
+            clearTimeout(this.studyRedrawTimer);
+            this.studyRedrawTimer = setTimeout(() => {
+                if (this.studyArrowArgs) {
+                    this.drawStudyArrows(this.studyArrowArgs);
+                }
+            }, 100);
+        };
+
+        window.addEventListener('resize', onChange);
+        window.addEventListener('scroll', onChange, { capture: true });
     }
 
     /**
@@ -223,8 +288,9 @@ export class MoveHighlighter {
      * @param {number} y1 - Start Y
      * @param {number} x2 - End X
      * @param {number} y2 - End Y
+     * @param {'solid'|'dashed'} [style='solid']
      */
-    static createArrow(svg, x1, y1, x2, y2) {
+    static createArrow(svg, x1, y1, x2, y2, style = 'solid') {
         const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         arrow.setAttribute('x1', x1);
         arrow.setAttribute('y1', y1);
@@ -234,7 +300,12 @@ export class MoveHighlighter {
         arrow.setAttribute('stroke-width', '1.5');
         arrow.setAttribute('stroke-linecap', 'round');
         arrow.setAttribute('marker-end', 'url(#arrowhead-chess-assistant)');
-        arrow.setAttribute('opacity', '0.8');
+        if (style === 'dashed') {
+            arrow.setAttribute('stroke-dasharray', '2 1.5');
+            arrow.setAttribute('opacity', '0.75');
+        } else {
+            arrow.setAttribute('opacity', '0.8');
+        }
         arrow.setAttribute('class', 'chess-assistant-arrow');
 
         this.ensureArrowMarker(svg);

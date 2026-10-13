@@ -113,7 +113,7 @@ async function clean() {
 
 async function copyPublicFiles() {
     logStep('Copying public files...');
-    const files = ['browser-polyfill.js', 'ecoA.json', 'ecoB.json', 'ecoC.json', 'ecoD.json', 'ecoE.json'];
+    const files = ['browser-polyfill.js', 'ecoA.json', 'ecoB.json', 'ecoC.json', 'ecoD.json', 'ecoE.json', 'opening-notes.json'];
     for (const file of files) {
         const src = path.join(PUBLIC_DIR, file);
         if (await fs.pathExists(src)) { await fs.copy(src, path.join(DIST_DIR, file)); logSuccess(`Copied ${file}`); }

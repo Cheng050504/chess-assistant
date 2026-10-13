@@ -38,12 +38,24 @@ export class AnalysisService {
         this.pendingRetryFen = null;
         this.waitingForEngine = false;
         this.timeoutRecoveryAttempts = 0;
+        this.isBlocked = false;
+        // R13: every analyze request carries a monotonic requestId; the
+        // background tags engine output with the id of the search producing it.
+        // Random start: ids of another tab or an earlier page load sharing the
+        // same engine are unlikely to collide with ours.
+        this.nextRequestId = Math.floor(Math.random() * 2 ** 30);
+        this.currentRequestId = null;
+    }
+
+    setBlocked(blocked) {
+        this.isBlocked = blocked;
+        if (blocked) this.pendingRetryFen = null;
     }
 
     // ── Connection ────────────────────────────────────────────────────────────
 
     connect() {
-        if (this.port) return;
+        if (this.port || this.isBlocked) return;
 
         try {
             this.port = chrome.runtime.connect({ name: 'chess-assistant' });
@@ -78,6 +90,25 @@ export class AnalysisService {
         }
     }
 
+    // Close the port on purpose (blocked page): no reconnects, no keep-alives.
+    // A local disconnect() does not fire this port's own onDisconnect.
+    disconnect() {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        this.reconnectAttempts = 0;
+        this.stopKeepAlive();
+        this.resetAnalyzingState();
+        this.pendingRetryFen = null;
+        const port = this.port;
+        this.port = null;
+        if (!port) return;
+        try {
+            port.disconnect();
+        } catch (e) {
+            logger.warn('Port disconnect failed:', e);
+        }
+    }
+
     async ensureConnected() {
         if (this.port) return true;
         this.connect();
@@ -87,7 +118,7 @@ export class AnalysisService {
     }
 
     scheduleReconnect() {
-        if (this.reconnectTimer) return;
+        if (this.reconnectTimer || this.isBlocked) return;
         if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             logger.error('Max reconnect attempts reached.');
             return;
@@ -99,6 +130,7 @@ export class AnalysisService {
 
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
+            if (this.isBlocked) return;
             this.connect();
             this.retryPendingAnalysis();
         }, delay);
@@ -133,13 +165,13 @@ export class AnalysisService {
 
     handleMessage(msg) {
         if (msg.type === MESSAGE_TYPES.STOCKFISH_MESSAGE) {
-            this.handleStockfishMessage(msg.data);
+            this.handleStockfishMessage(msg.data, msg.searchId ?? null);
         } else if (msg.type === MESSAGE_TYPES.STOCKFISH_ERROR) {
             this.handleError(msg.error);
         }
     }
 
-    handleStockfishMessage(message) {
+    handleStockfishMessage(message, searchId = null) {
         // The background sends this status string while the WASM is still loading.
         if (typeof message === 'string' && message.includes('Engine loading')) {
             this.waitingForEngine = true;
@@ -153,10 +185,12 @@ export class AnalysisService {
         this.waitingForEngine = false;
 
         if (this.onMoveCallback) {
-            this.onMoveCallback(message);
+            this.onMoveCallback(message, searchId);
         }
 
-        if (typeof message === 'string' && message.includes('bestmove')) {
+        // Only our own search's bestmove ends it; late/duplicate ones are tagged null.
+        if (typeof message === 'string' && message.includes('bestmove')
+            && searchId !== null && searchId === this.currentRequestId) {
             this.resetAnalyzingState();
         }
     }
@@ -174,6 +208,7 @@ export class AnalysisService {
     // ── Public API ────────────────────────────────────────────────────────────
 
     async analyze() {
+        if (this.isBlocked) return;
         if (this.isAnalyzing) {
             logger.warn('Already analyzing');
             return;
@@ -215,6 +250,8 @@ export class AnalysisService {
     }
 
     sendAnalyzeRequest(fen, triggerStartCallback = true) {
+        if (this.isBlocked) return false;
+
         // Before analyzing new position, stop old analysis
         if (this.isAnalyzing) {
             logger.log('Previous analysis still running, stopping it first');
@@ -222,6 +259,7 @@ export class AnalysisService {
         }
 
         this.lastFen = fen;
+        this.currentRequestId = this.nextRequestId++;
         this.isAnalyzing = true;
         this.waitingForEngine = false;
         this.startAnalysisTimeout();
@@ -234,7 +272,8 @@ export class AnalysisService {
             this.port.postMessage({
                 type: MESSAGE_TYPES.ANALYZE,
                 fen,
-                depth: this.normalizeDepth(this.depth)
+                depth: this.normalizeDepth(this.depth),
+                requestId: this.currentRequestId
             });
             return true;
         } catch (e) {
@@ -274,6 +313,10 @@ export class AnalysisService {
     }
 
     retryPendingAnalysis() {
+        if (this.isBlocked) {
+            this.pendingRetryFen = null;
+            return;
+        }
         if (!this.port || !this.pendingRetryFen) return;
 
         const fen = this.pendingRetryFen;
@@ -281,6 +324,7 @@ export class AnalysisService {
         this.waitingForEngine = false;
 
         setTimeout(() => {
+            if (this.isBlocked) return;
             if (!this.port) {
                 this.pendingRetryFen = fen;
                 this.scheduleReconnect();
@@ -344,13 +388,14 @@ export class AnalysisService {
     }
 
 
+    // Resets the engine but never re-sends on its own: the caller (the coach) owns
+    // retries, so a late retry can't fill a newer request with an older position.
     recoverFromTimeout() {
-        const fenToRetry = this.lastFen;
         this.resetAnalyzingState();
-        this.pendingRetryFen = fenToRetry;
+        this.pendingRetryFen = null;
 
         if (this.onErrorCallback) {
-            this.onErrorCallback('Analysis stalled. Resetting engine and retrying...');
+            this.onErrorCallback('Analysis stalled. Resetting engine...');
         }
 
         if (this.port) {
@@ -363,7 +408,6 @@ export class AnalysisService {
         }
 
         this.scheduleReconnect();
-        this.retryPendingAnalysis();
     }
 
     clearAnalysisTimeout() {

@@ -4,6 +4,7 @@
     "description": "Free chess analysis assistant using Stockfish for chess.com/lichess.org",
     "scripts": {
         "build": "node scripts/build.js",
+        "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \"test/**/*.test.js\"",
         "build:prod": "cross-env NODE_ENV=production node scripts/build.js --prod",
         "build:firefox": "node scripts/build.js --firefox",
         "build:firefox:prod": "cross-env NODE_ENV=production node scripts/build.js --firefox --prod",
@@ -16,8 +17,7 @@
         "package:firefox": "npm run build:firefox:prod && node scripts/build.js --firefox --package",
         "package:chrome": "npm run build:chrome:prod && node scripts/build.js --chrome --package",
         "lint": "eslint src/**/*.js",
-        "lint:fix": "eslint src/**/*.js --fix",
-        "test": "echo \"No tests yet\" && exit 0"
+        "lint:fix": "eslint src/**/*.js --fix"
     },
     "devDependencies": {
         "archiver": "^6.0.1",

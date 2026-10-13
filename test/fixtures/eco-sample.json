@@ -1,0 +1,156 @@
+[
+  {
+    "src": "eco_tsv",
+    "eco": "B10",
+    "moves": "1. e4 c6",
+    "name": "Caro-Kann Defense",
+    "scid": "B10a",
+    "aliases": {
+      "scid": "Caro-Kann",
+      "ct": "Caro-Kann Defense, General",
+      "chessGraph": "Caro-Kann Defense; B10",
+      "icsbot": "Caro-Kann Defense; B10 "
+    },
+    "isEcoRoot": true
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B10",
+    "moves": "1. e4 c6 2. Nc3",
+    "name": "Caro-Kann Defense",
+    "scid": "B10p",
+    "aliases": {
+      "scid": "Caro-Kann: 2.Nc3",
+      "eco_js": "Caro-Kann Defense, 2. Nc3",
+      "chessGraph": "B11"
+    }
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B12",
+    "moves": "1. e4 c6 2. d4",
+    "name": "Caro-Kann Defense",
+    "scid": "B12a",
+    "aliases": {
+      "scid": "Caro-Kann: 2.d4",
+      "eco_js": "Caro-Kann Defense, 2. d4",
+      "chessGraph": "B12"
+    },
+    "isEcoRoot": true
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B12",
+    "moves": "1. e4 c6 2. d4 d5",
+    "name": "Caro-Kann Defense",
+    "scid": "B12b",
+    "aliases": {
+      "scid": "Caro-Kann: 2.d4 d5",
+      "eco_js": "Caro-Kann Defense, 2. d4 d5"
+    }
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B12",
+    "moves": "1. e4 c6 2. d4 d5 3. e5",
+    "name": "Caro-Kann Defense: Advance Variation",
+    "scid": "B12i",
+    "aliases": {
+      "scid": "Caro-Kann: Advance Variation",
+      "chessGraph": "Advance Variation, Caro",
+      "chronos": "Caro-Kann: advance variation",
+      "icsbot": "Advance Variation, Caro "
+    }
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B13",
+    "moves": "1. e4 c6 2. d4 d5 3. exd5",
+    "name": "Caro-Kann Defense: Exchange Variation",
+    "scid": "B13a",
+    "aliases": {
+      "scid": "Caro-Kann: Exchange Variation",
+      "chessGraph": "Exchange Variation, Caro; B13",
+      "chronos": "Caro-Kann: exchange variation",
+      "icsbot": "Exchange Variation, Caro; B13 "
+    }
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B15",
+    "moves": "1. e4 c6 2. d4 d5 3. Nc3",
+    "name": "Caro-Kann Defense",
+    "scid": "B15a",
+    "aliases": {
+      "scid": "Caro-Kann: 3.Nc3",
+      "eco_js": "Caro-Kann Defense, 2. d4 d5 3. Nc3",
+      "ct": "Caro-Kann Defense, Standard",
+      "chessGraph": "B15"
+    },
+    "isEcoRoot": true
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B15",
+    "moves": "1. e4 c6 2. d4 d5 3. Nc3 Nf6",
+    "name": "Caro-Kann Defense: Campomanes Attack",
+    "aliases": {
+      "chessGraph": "Campomanes Attack, Caro",
+      "icsbot": "Campomanes Attack, Caro "
+    }
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B15",
+    "moves": "1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nf6 5. Ng5 h6 6. Nxf7",
+    "name": "Caro-Kann Defense: Alien Gambit",
+    "added": "Feb 2025"
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B18",
+    "moves": "1. e4 c6 2. d4 d5 3. Nd2 dxe4 4. Nxe4 Bf5",
+    "name": "Caro-Kann Defense: Classical Variation",
+    "scid": "B18a",
+    "aliases": {
+      "scid": "Caro-Kann: Classical",
+      "chessGraph": "Classical Variation, Caro; B18",
+      "chronos": "Caro-Kann: classical variation",
+      "icsbot": "Classical Variation, Caro; B18 "
+    },
+    "isEcoRoot": true
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "C00",
+    "moves": "1. e4 e6",
+    "name": "French Defense",
+    "scid": "C00a",
+    "aliases": {
+      "scid": "French",
+      "ct": "French Defense, General",
+      "chessGraph": "French Defense; C00",
+      "icsbot": "French Defense; C00 "
+    },
+    "isEcoRoot": true
+  },
+  {
+    "src": "eco_tsv",
+    "eco": "B20",
+    "moves": "1. e4 c5",
+    "name": "Sicilian Defense",
+    "scid": "B20",
+    "aliases": {
+      "scid": "Sicilian Defence",
+      "ct": "Sicilian Defense, General",
+      "chessGraph": "Sicilian Defense; B20",
+      "icsbot": "Sicilian Defense; B20 "
+    },
+    "isEcoRoot": true
+  },
+  {
+    "eco": "X00",
+    "name": "Broken",
+    "moves": "1. e4 e4"
+  }
+]
