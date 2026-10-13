@@ -38,11 +38,10 @@ class ChessAssistant {
         this.analysisStartFEN = null;
         this.topMoves = [];
         this.engineLoading = false;
-        // Every `go` ends with exactly one `bestmove`, even when stopped. A search
-        // still open when the next one starts owes one stale `bestmove`; until it
-        // arrives, all engine output belongs to the old search and is ignored.
-        this.searchOpen = false;
-        this.staleBestmoves = 0;
+        // R13: requestId of the search whose lines fill topMoves (null when none).
+        // The background tags engine output with the id of the search producing
+        // it; output with any other id (or null) is ignored.
+        this.analysisId = null;
         this.coach = null;
         this.studyTree = null;
         this.studyPanel = null;
@@ -159,20 +158,25 @@ class ChessAssistant {
         const service = this.analysisService;
         if (service.isBlocked) return Promise.reject(new Error('Analysis is blocked'));
         return new Promise((resolve, reject) => {
-            const entry = { fen, resolve, reject, softTimer: null };
+            const entry = { fen, resolve, reject, softTimer: null, requestId: null };
             this.clearPendingEngine();
             this.pendingEngine = entry;
             this.armSoftLimit(entry, 2);
             setTimeout(async () => {
                 // Re-check the URL first (deferred: a verdict change re-enters the coach).
                 if (this.pendingEngine !== entry || this.gate.check() !== 'training') return;
-                if (service.isAnalyzing && samePosition(service.lastFen, fen)) return;
+                if (service.isAnalyzing && samePosition(service.lastFen, fen)) {
+                    entry.requestId = this.analysisId; // that search already serves this position
+                    return;
+                }
                 const connected = !service.isBlocked && await service.ensureConnected();
                 if (this.pendingEngine !== entry) return;
                 if (!connected || !service.sendAnalyzeRequest(fen)) {
                     this.clearPendingEngine();
                     reject(new Error('Engine request failed'));
+                    return;
                 }
+                entry.requestId = this.analysisId;
             }, 0);
         });
     }
@@ -183,12 +187,12 @@ class ChessAssistant {
         entry.softTimer = setTimeout(() => {
             entry.softTimer = null;
             if (this.pendingEngine !== entry) return;
-            const current = this.contextVerdict === 'training' && this.searchOpen
-                && this.staleBestmoves === 0 && samePosition(entry.fen, this.analysisStartFEN);
+            const current = this.contextVerdict === 'training' && entry.requestId !== null
+                && entry.requestId === this.analysisId && samePosition(entry.fen, this.analysisStartFEN);
             if (current && this.topMoves.some(m => m !== undefined)) {
                 logger.log('Engine soft limit reached, answering with the deepest lines so far');
                 this.deliverLines();
-                // The search stays open: its bestmove is still owed and is consumed normally.
+                // Its later bestmove (if any) finds no pending request and resolves nothing.
                 this.analysisService.stopAnalysis();
             } else if (tries > 1) {
                 this.armSoftLimit(entry, tries - 1);
@@ -235,7 +239,7 @@ class ChessAssistant {
             MoveHighlighter.clearAll();
             this.topMoves = [];
             this.analysisStartFEN = null;
-            this.resetSearchTracking();
+            this.analysisId = null;
             // Forget the (possibly human-game) position so an unblock can't reuse it.
             this.position = null;
             this.overlay.setBlocked(true);
@@ -278,15 +282,12 @@ class ChessAssistant {
     }
 
     setupAnalysisCallbacks() {
-        this.analysisService.onMove((message) => {
-            this.handleStockfishMessage(message);
+        this.analysisService.onMove((message, searchId) => {
+            this.handleStockfishMessage(message, searchId);
         });
 
         this.analysisService.onAnalyzeStart(() => {
-            // While the engine loads, the background replaces the queued request
-            // instead of starting a second search, so nothing stale is owed.
-            if (this.searchOpen && !this.engineLoading) this.staleBestmoves++;
-            this.searchOpen = true;
+            this.analysisId = this.analysisService.currentRequestId;
             this.topMoves = [];
             this.analysisStartFEN = this.analysisService.lastFen;
             logger.log('Analysis started for FEN:', this.analysisStartFEN);
@@ -297,7 +298,7 @@ class ChessAssistant {
             // The coach owns retries (next position); the service must never
             // re-send an older FEN on its own after a reconnect.
             this.analysisService.pendingRetryFen = null;
-            this.resetSearchTracking();
+            this.analysisId = null;
             this.rejectEngine(error);
         });
 
@@ -309,43 +310,38 @@ class ChessAssistant {
         pending?.reject(new Error(String(reason)));
     }
 
-    resetSearchTracking() {
-        this.searchOpen = false;
-        this.staleBestmoves = 0;
-    }
-
     setEngineLoading(loading) {
         if (loading === this.engineLoading) return;
         this.engineLoading = loading;
         this.coach?.setEngineLoading(loading);
     }
 
-    handleStockfishMessage(message) {
+    handleStockfishMessage(message, searchId = null) {
         if (this.contextVerdict !== 'training') return;
         this.setEngineLoading(false);
 
+        // Only output of our current search counts (stopped/late/duplicate output,
+        // or another page's search, carries another id or null).
+        if (searchId === null || searchId !== this.analysisId) return;
         const isBest = message.includes('bestmove');
-        if (this.staleBestmoves > 0) {
-            // Output of a stopped search: its lines must not reach the new request.
-            if (isBest) this.staleBestmoves--;
-            return;
-        }
-        // No search of ours is open (e.g. output still routed from another page's search).
-        if (!this.searchOpen) return;
-        if (isBest) this.searchOpen = false;
         if (!isBest && !(message.includes('info depth') && message.includes('multipv'))) return;
         if (!this.isAnalysisStillValid()) {
             // The board moved on: fail now so the card doesn't wait for the timeout.
             logger.warn('Position changed during analysis, discarding');
             this.analysisService.stopAnalysis();
             // Only the request this search serves; a newer deferred request survives.
-            if (samePosition(this.pendingEngine?.fen, this.analysisStartFEN)) {
+            if (this.pendingEngine && this.pendingEngine.requestId === this.analysisId) {
                 this.rejectEngine('Position changed during analysis');
             }
+            this.analysisId = null;
             return;
         }
-        if (isBest) this.resolveEngine();
-        else this.parseMultiPVInfo(message);
+        if (isBest) {
+            this.resolveEngine();
+            this.analysisId = null;
+        } else {
+            this.parseMultiPVInfo(message);
+        }
     }
 
     /**
@@ -403,7 +399,8 @@ class ChessAssistant {
         const lines = this.topMoves.filter(m => m !== undefined).sort((a, b) => a.multipv - b.multipv).slice(0, 3);
         this.topMoves = lines;
         const pending = this.pendingEngine;
-        if (lines.length && pending && samePosition(pending.fen, this.analysisStartFEN)) {
+        if (lines.length && pending && pending.requestId !== null && pending.requestId === this.analysisId
+            && samePosition(pending.fen, this.analysisStartFEN)) {
             this.clearPendingEngine();
             pending.resolve(lines.map(m => ({
                 uci: m.move, scoreText: this.overlay.formatScore(m), depth: m.depth,

@@ -22,8 +22,19 @@ const IS_FIREFOX = !(typeof chrome !== 'undefined' && chrome.offscreen);
 
 let currentAnalysisPort = null;
 let stockfishReady = false;
-let isAnalyzing = false;
 let pendingAnalysis = null;
+// R13: one search at a time. activeSearchId is the requestId of the running
+// search (null when idle or stopping); every forwarded engine line is tagged
+// with it, so the content script only accepts lines of the search it asked for.
+let activeSearchId = null;
+// UCI: every `go` ends with exactly one bestmove, even when stopped. The
+// bundled engine can send a stopped search's bestmove late (after the next
+// search's lines), so count the ones still owed; while more than one is owed,
+// the next bestmove belongs to an older search and is tagged null.
+let owedBestmoves = 0;
+let queuedAnalysis = null;      // request waiting for a stopped search to end
+let stopWaitTimer = null;
+const STOP_WAIT_MS = 2000;
 let offscreenReady = false;
 let firefoxWorker = null;
 
@@ -167,6 +178,11 @@ chrome.runtime.onConnect.addListener(function (port) {
         return;
     }
 
+    // A new page owns the engine now: stop the previous page's search and drop
+    // its queued requests, so their output (tagged null) can't match an id of
+    // the new page (each page numbers its requests on its own).
+    handleStopAnalysis();
+    pendingAnalysis = null;
     currentAnalysisPort = port;
     initStockfish();
 
@@ -201,6 +217,7 @@ function handleAnalyzeRequest(msg) {
 
     const safeFen = msg.fen.trim();
     const safeDepth = normalizeDepth(msg.depth);
+    const safeRequestId = msg.requestId === undefined ? null : msg.requestId;
 
     if (!isValidFEN(safeFen)) {
         safePostToPort(currentAnalysisPort, { type: 'stockfish-error', error: 'Invalid board position.' });
@@ -209,7 +226,7 @@ function handleAnalyzeRequest(msg) {
 
     if (!stockfishReady) {
         console.log('Background - Engine loading, queuing analysis...');
-        pendingAnalysis = { fen: safeFen, depth: safeDepth };
+        pendingAnalysis = { fen: safeFen, depth: safeDepth, requestId: safeRequestId };
         safePostToPort(currentAnalysisPort, {
             type: 'stockfish-message',
             data: 'info string Engine loading, please wait...'
@@ -217,15 +234,15 @@ function handleAnalyzeRequest(msg) {
         return;
     }
 
-    runAnalysis({ fen: safeFen, depth: safeDepth });
+    runAnalysis({ fen: safeFen, depth: safeDepth, requestId: safeRequestId });
 }
 
 function handleReset() {
     console.log('Background - Manual engine reset');
     stockfishReady = false;
-    isAnalyzing = false;
     offscreenReady = false;
     pendingAnalysis = null;
+    clearSearchState();
 
     if (IS_FIREFOX) {
         if (firefoxWorker) {
@@ -240,38 +257,74 @@ function handleReset() {
 }
 
 function handleStopAnalysis() {
-    if (!isAnalyzing) {
+    // A stop also drops a request still waiting for the previous search to end.
+    queuedAnalysis = null;
+    clearTimeout(stopWaitTimer);
+    stopWaitTimer = null;
+    if (activeSearchId === null) {
         console.log('Background - No analysis running to stop');
         return;
     }
-
     console.log('Background - ⛔ Stopping analysis');
-    isAnalyzing = false;
+    activeSearchId = null;
     sendToStockfish('stop');
 }
 
+function clearSearchState() {
+    activeSearchId = null;
+    owedBestmoves = 0;
+    queuedAnalysis = null;
+    clearTimeout(stopWaitTimer);
+    stopWaitTimer = null;
+}
+
+// Searches are serialized: a running search is stopped and the new request
+// starts once its bestmove arrives (or after STOP_WAIT_MS if it never does).
+// A newer request replaces one that is still waiting.
 function runAnalysis(msg) {
     if (!stockfishReady) {
         console.error('Background - Cannot analyze: engine not ready');
         return;
     }
+    if (owedBestmoves > 0) {
+        queuedAnalysis = msg;
+        if (activeSearchId !== null) {
+            activeSearchId = null;
+            sendToStockfish('stop');
+        }
+        if (!stopWaitTimer) {
+            stopWaitTimer = setTimeout(() => {
+                stopWaitTimer = null;
+                // Its bestmove stays owed: when it does arrive it is tagged null.
+                console.warn('Background - stopped search sent no bestmove yet, starting the next one');
+                startQueuedAnalysis();
+            }, STOP_WAIT_MS);
+        }
+        return;
+    }
+    startSearch(msg);
+}
 
-    if (isAnalyzing) sendToStockfish('stop');
+function startQueuedAnalysis() {
+    clearTimeout(stopWaitTimer);
+    stopWaitTimer = null;
+    const next = queuedAnalysis;
+    queuedAnalysis = null;
+    if (next && stockfishReady) startSearch(next);
+}
 
+function startSearch(msg) {
     try {
-        isAnalyzing = true;
-        sendToStockfish('stop');
-
-        setTimeout(() => {
-            sendToStockfish('ucinewgame');
-            sendToStockfish('position fen ' + msg.fen);
-            sendToStockfish('setoption name MultiPV value 3');
-            sendToStockfish('go depth ' + msg.depth);
-            console.log('Background - ✅ Analysis commands sent');
-        }, 50);
+        sendToStockfish('ucinewgame');
+        sendToStockfish('position fen ' + msg.fen);
+        sendToStockfish('setoption name MultiPV value 3');
+        sendToStockfish('go depth ' + msg.depth);
+        activeSearchId = msg.requestId;
+        owedBestmoves++;
+        console.log('Background - ✅ Analysis commands sent, search', msg.requestId);
     } catch (e) {
         console.error('Background - Error sending analysis commands:', e);
-        isAnalyzing = false;
+        clearSearchState();
         safePostToPort(currentAnalysisPort, {
             type: 'stockfish-error',
             error: 'Error communicating with engine. Try reloading the page.'
@@ -319,16 +372,24 @@ function handleOffscreenMsg(msg) {
             }
         }
 
-        if (typeof message === 'string' && message.includes('bestmove')) {
-            isAnalyzing = false;
+        // Tag with the search producing this line; a bestmove ends that search,
+        // so duplicate or late bestmoves are tagged null.
+        const isBest = typeof message === 'string' && message.includes('bestmove');
+        let searchId = activeSearchId;
+        if (isBest) {
+            if (owedBestmoves > 1) searchId = null; // an older, stopped search's late bestmove
+            else activeSearchId = null;
+            owedBestmoves = Math.max(0, owedBestmoves - 1);
         }
 
-        safePostToPort(currentAnalysisPort, { type: 'stockfish-message', data: message });
+        safePostToPort(currentAnalysisPort, { type: 'stockfish-message', data: message, searchId });
+
+        if (isBest && owedBestmoves === 0 && queuedAnalysis) startQueuedAnalysis();
 
     } else if (msg.type === 'offscreen-error') {
         console.error('Background - Stockfish error:', msg.error);
         stockfishReady = false;
-        isAnalyzing = false;
+        clearSearchState();
         safePostToPort(currentAnalysisPort, { type: 'stockfish-error', error: msg.error });
     }
 }
@@ -337,6 +398,7 @@ function isValidAnalyzeMessage(msg) {
     if (!msg || typeof msg !== 'object') return false;
     if (msg.type !== 'analyze') return false;
     if (typeof msg.fen !== 'string' || msg.fen.length > ANALYSIS_LIMITS.MAX_FEN_LENGTH) return false;
+    if (msg.requestId !== undefined && !(Number.isInteger(msg.requestId) && msg.requestId >= 0)) return false;
     return true;
 }
 

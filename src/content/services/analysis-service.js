@@ -39,6 +39,12 @@ export class AnalysisService {
         this.waitingForEngine = false;
         this.timeoutRecoveryAttempts = 0;
         this.isBlocked = false;
+        // R13: every analyze request carries a monotonic requestId; the
+        // background tags engine output with the id of the search producing it.
+        // Random start: ids of another tab or an earlier page load sharing the
+        // same engine are unlikely to collide with ours.
+        this.nextRequestId = Math.floor(Math.random() * 2 ** 30);
+        this.currentRequestId = null;
     }
 
     setBlocked(blocked) {
@@ -159,13 +165,13 @@ export class AnalysisService {
 
     handleMessage(msg) {
         if (msg.type === MESSAGE_TYPES.STOCKFISH_MESSAGE) {
-            this.handleStockfishMessage(msg.data);
+            this.handleStockfishMessage(msg.data, msg.searchId ?? null);
         } else if (msg.type === MESSAGE_TYPES.STOCKFISH_ERROR) {
             this.handleError(msg.error);
         }
     }
 
-    handleStockfishMessage(message) {
+    handleStockfishMessage(message, searchId = null) {
         // The background sends this status string while the WASM is still loading.
         if (typeof message === 'string' && message.includes('Engine loading')) {
             this.waitingForEngine = true;
@@ -179,10 +185,12 @@ export class AnalysisService {
         this.waitingForEngine = false;
 
         if (this.onMoveCallback) {
-            this.onMoveCallback(message);
+            this.onMoveCallback(message, searchId);
         }
 
-        if (typeof message === 'string' && message.includes('bestmove')) {
+        // Only our own search's bestmove ends it; late/duplicate ones are tagged null.
+        if (typeof message === 'string' && message.includes('bestmove')
+            && searchId !== null && searchId === this.currentRequestId) {
             this.resetAnalyzingState();
         }
     }
@@ -251,6 +259,7 @@ export class AnalysisService {
         }
 
         this.lastFen = fen;
+        this.currentRequestId = this.nextRequestId++;
         this.isAnalyzing = true;
         this.waitingForEngine = false;
         this.startAnalysisTimeout();
@@ -263,7 +272,8 @@ export class AnalysisService {
             this.port.postMessage({
                 type: MESSAGE_TYPES.ANALYZE,
                 fen,
-                depth: this.normalizeDepth(this.depth)
+                depth: this.normalizeDepth(this.depth),
+                requestId: this.currentRequestId
             });
             return true;
         } catch (e) {
