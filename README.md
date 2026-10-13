@@ -11,13 +11,10 @@ A free browser extension that provides real-time chess analysis powered by Stock
 ## Features
 
 - **Real-time analysis** — Stockfish engine runs locally in your browser; no data is sent to any server
-- **Top 3 move suggestions** with evaluation scores and mate detection
-- **Opening explorer** — automatically identifies the opening from ECO databases (A–E)
-- **Study an opening** — pick an opening by name or ECO code and get move-by-move guidance in Chess.com bot games and on the analysis boards, with a Show/Try toggle for practice
-- **Repertoire builder** — save and manage your favorite lines
+- **One best move per turn** — on your turn the overlay shows a single best-move card with a source badge, a short reason, the evaluation and up to two alternatives, plus an arrow on the board
+- **Opening-aware** — guidance follows the opening you chose to learn, then the best book move against the bot's opening, then Stockfish
+- **Learn an opening** — pick an opening by name or ECO code; the color is set automatically
 - **Depth control** — configurable analysis depth from 5 to 25 half-moves
-- **Auto-analyze mode** — triggers analysis automatically after each move
-- **Move highlighting** — hover over a suggestion to see it highlighted on the board with an arrow
 - **Customizable colors** — choose your own highlight and arrow colors
 - **Works on both Chess.com and Lichess.org**
 - **Chrome (Manifest V3) and Firefox (Manifest V2) support**
@@ -26,7 +23,7 @@ A free browser extension that provides real-time chess analysis powered by Stock
 
 ## Where assistance works
 
-Engine assistance (Analyze, auto-analyze, top-3 suggestions and arrows) is only on in these places:
+Engine assistance (the best-move card and arrows) is only on in these places:
 
 - Chess.com: games against the computer (`/play/computer`, `/game/computer/<id>`) and the analysis board (`/analysis`)
 - Lichess: the analysis board (`/analysis`)
@@ -136,58 +133,57 @@ The Chrome (Manifest V3) build works unchanged in Edge.
 
 ## Usage
 
-1. Navigate to a game on [chess.com](https://www.chess.com) or [lichess.org](https://lichess.org)
-2. The **Chess Assistant** overlay will appear in the top-right corner of the page
-3. Click **Analyze** to get the top 3 suggested moves for the current position
-4. Enable **AUTO** mode to have analysis triggered automatically after every move
-5. Hover over a suggested move to highlight it on the board
-6. Use the **popup icon** in your browser toolbar to adjust analysis depth and colors
+1. Open a game against the computer on [chess.com](https://www.chess.com) (or an analysis board).
+2. The **Chess Assistant** overlay appears in the top-right corner of the page.
+3. On your turn, the overlay shows one **best-move card** and a solid arrow on the board. Guidance continues every turn until the game ends; there is no move limit.
+4. On the bot's turn the card says "Waiting for the bot…".
+5. Use the **popup icon** in your browser toolbar to adjust analysis depth and colors.
 
-### Overlay Controls
+### The best-move card
 
-| Button | Description |
-|--------|-------------|
+The card shows:
+
+- the move, with a badge: **Study**, **Book** or **Engine**
+- a short reason for the move
+- the evaluation and depth, for example `+0.3 · depth 15`
+- **Also good:** up to two alternative moves
+
+The move comes from the first rule that applies:
+
+1. **Study**: you chose an opening to learn and the game still fits it. The card shows that opening's next move.
+2. **Book**: the position is still in opening theory. The card shows the book move that Stockfish rates best, which is the best counter to the bot's opening, and names the opening.
+3. **Engine**: otherwise the card shows Stockfish's best move.
+
+A book move that Stockfish rejects is never shown.
+
+Stockfish runs locally in your browser (no online service) and only on your turn, at the depth set in the popup. If it cannot answer within 30 seconds, the card says "Engine unavailable — retrying on the next move".
+
+### Arrows
+
+- A **solid arrow** is the card's move on your turn.
+- A **dashed arrow** is the reply the bot is expected to play. It shows only on the bot's turn, when you are following a study line.
+
+### Overlay controls
+
+| Control | Description |
+|---------|-------------|
 | **ON / OFF** | Enable or disable the assistant |
-| **AUTO / MANUAL** | Toggle automatic analysis after each move |
-| **Analyze** | Manually trigger analysis of the current position |
 | **−** | Collapse the overlay |
 | **✕** | Hide the overlay (restore with the floating launcher button) |
 
 ---
 
-## Study an opening
+## Learn an opening
 
-The **Study** section of the overlay guides you through an opening in a Chess.com game against the computer, or on the analysis boards (Chess.com and Lichess `/analysis`). It works only on the pages listed in [Where assistance works](#where-assistance-works).
+Learning an opening is optional. It works only on the pages listed in [Where assistance works](#where-assistance-works).
 
-1. In the overlay's Study section, click **Choose opening** (or **Change** if one is already chosen). The opening tree loads after the page becomes a training page, so you may see "Loading openings…" for about a second.
-2. In the picker, choose **White** or **Black**. If you do not choose, the default is the side that plays the last move of the line.
-3. Search by name or ECO code, for example `alien` or `B15`, and click an opening. The color is fixed at this click. To switch color later, click **Change**, choose the color, and pick the opening again.
-4. Play the game. The overlay and the board show what to play next.
+1. In the overlay's **Learn an opening** row, click **Choose…** (or the pencil to change the opening). The opening tree loads after the page becomes a training page, so you may see the button disabled for about a second.
+2. Search by name or ECO code, for example `alien` or `B15`, and click an opening. There is no color choice: the color is the side that plays the last move of the line.
+3. Play the game. While the game fits the line, the card shows the line's next move with the **Study** badge. Where notes exist, the reason comes from them. Notes currently cover the Caro-Kann main moves and the Alien Gambit, including 7.Nf3 and the 7...Bg4? 8.Ne5+ trap.
+4. If the bot (or you) leaves the line, the status line says so and the card switches to **Book** or **Engine** guidance.
+5. Click **Stop learning** to clear the opening.
 
-### Show and Try
-
-- **Show** displays the book move and its arrow.
-- **Try** hides the book move until you click **Show me**. While there is a move for you to find in Try mode, Stockfish's top-3 list is hidden too.
-
-### Arrows and sources
-
-- A **dashed arrow** is the reply the bot is expected to play. A **solid arrow** is your next move.
-- Each piece of guidance carries a badge:
-  - **Book**: the move comes from the opening line.
-  - **Notes**: the move comes with a written explanation. Notes currently cover the Caro-Kann main moves and the Alien Gambit only.
-  - **Engine**: the move comes from Stockfish. After the book line ends, or after a deviation, Engine guidance continues for up to 10 of your moves.
-- If the bot (or you) leaves the line, the deviation is named and guidance continues from the new position.
-
-### Keyboard shortcuts
-
-| Key | Action |
-|-----|--------|
-| **S** | Switch between Show and Try |
-| **H** | Show me (reveal the hidden move in Try mode) |
-| **O** | Open the opening picker |
-| **Esc** | Close the opening picker |
-
-Shortcuts are ignored while you are typing in a text field and with Ctrl, Cmd or Alt combinations. They do nothing while the overlay is hidden or collapsed, or on pages where assistance is off. **S** and **H** need a chosen opening. **Esc** also closes the picker from inside its search box.
+The only keyboard shortcut is **Esc**, which closes the opening picker.
 
 ---
 
@@ -196,13 +192,12 @@ Shortcuts are ignored while you are typing in a text field and with Ctrl, Cmd or
 Run these in Microsoft Edge after a change to the extension.
 
 1. `npm run build:chrome`, then `edge://extensions` → Developer mode → Load unpacked → `dist/chrome`.
-2. `/play/computer` as White: pick Alien Gambit; follow the line; confirm book moves, dashed bot predictions, `reached`.
-3. Bot deviates: confirm the new opening name and continued guidance.
-4. Try mode: Show me, wrong move feedback.
-5. As Black: `wrong-color` message.
-6. `/play/online` and a `/game/live/…` page: nothing shown and no engine activity.
+2. `/play/computer`, no opening chosen: play a full game; the card shows a move every turn of yours until the game ends.
+3. Choose the Alien Gambit and play as White; when the bot plays the Caro-Kann, the card follows the line (Study badge, dashed bot predictions), including the 7.Nf3 and 7...Bg4? 8.Ne5+ trap notes.
+4. Bot deviates: the card switches to Book or Engine and names the new opening.
+5. `/play/online` and a `/game/live/…` page: nothing shown and no engine activity.
+6. Navigate from `/play/computer` to `/play/online` without reloading; the panel shows the blocked message within 1 s and no arrows remain.
 7. Resize the window and flip the board: arrows stay aligned.
-8. Navigate from `/play/computer` to `/play/online` without reloading; the panel shows the blocked message within 1 s and no arrows remain.
 
 ---
 
@@ -226,9 +221,10 @@ chess-assistant/
 │   │   ├── index.js         # Entry point
 │   │   ├── chess/           # Board parsing, FEN validation, move highlighting
 │   │   ├── context/         # Page gate: where assistance is allowed
-│   │   ├── study/           # Opening tree, study tracker/controller, explainer, recent list
+│   │   ├── coach/           # Best-move coach: Study → Book → Engine
+│   │   ├── study/           # Opening tree, study tracker, explainer, recent list
 │   │   ├── services/        # Analysis service, opening explorer
-│   │   └── ui/              # Overlay component
+│   │   └── ui/              # Overlay and coach panel
 │   ├── popup/               # Browser action popup (settings UI)
 │   ├── shared/              # Shared constants, logger, storage helpers
 │   ├── styles/              # Overlay CSS
