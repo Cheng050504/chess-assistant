@@ -11,7 +11,7 @@ A free browser extension that provides real-time chess analysis powered by Stock
 ## Features
 
 - **Real-time analysis** — Stockfish engine runs locally in your browser; no data is sent to any server
-- **One best move per turn** — on your turn the overlay shows a single best-move card with a source badge, a short reason, the evaluation and up to two alternatives, plus an arrow on the board
+- **One best move per turn** — on your turn the overlay shows a single best-move card with a source badge, a short reason when one applies, the evaluation and up to two alternatives, plus an arrow on the board
 - **Opening-aware** — guidance follows the opening you chose to learn, then the best book move against the bot's opening, then Stockfish
 - **Learn an opening** — pick an opening by name or ECO code; the color is set automatically
 - **Depth control** — configurable analysis depth from 5 to 25 half-moves
@@ -144,14 +144,14 @@ The Chrome (Manifest V3) build works unchanged in Edge.
 The card shows:
 
 - the move, with a badge: **Study**, **Book** or **Engine**
-- a short reason for the move
+- a short reason when one applies
 - the evaluation and depth, for example `+0.3 · depth 15`
 - **Also good:** up to two alternative moves
 
 The move comes from the first rule that applies:
 
 1. **Study**: you chose an opening to learn and the game still fits it. The card shows that opening's next move.
-2. **Book**: the position is still in opening theory. The card shows the book move that Stockfish rates best, which is the best counter to the bot's opening, and names the opening.
+2. **Book**: the position is still in opening theory. The card shows the highest-ranked of Stockfish's top three moves that is also a book move, which is the best counter to the bot's opening, and names the opening.
 3. **Engine**: otherwise the card shows Stockfish's best move.
 
 A book move that Stockfish rejects is never shown.
@@ -179,7 +179,7 @@ Learning an opening is optional. It works only on the pages listed in [Where ass
 
 1. In the overlay's **Learn an opening** row, click **Choose…** (or the pencil to change the opening). The opening tree loads after the page becomes a training page, so you may see the button disabled for about a second.
 2. Search by name or ECO code, for example `alien` or `B15`, and click an opening. There is no color choice: the color is the side that plays the last move of the line.
-3. Play the game. While the game fits the line, the card shows the line's next move with the **Study** badge. Where notes exist, the reason comes from them. Notes currently cover the Caro-Kann main moves and the Alien Gambit, including 7.Nf3 and the 7...Bg4? 8.Ne5+ trap.
+3. Play the game. While the game fits the line, the card shows the line's next move with the **Study** badge. Notes appear on whichever card move they match. They currently cover the Caro-Kann main moves and the Alien Gambit, which continues past the opening line with 7.Nf3 and the 7...Bg4? 8.Ne5+ trap.
 4. If the bot (or you) leaves the line, the status line says so and the card switches to **Book** or **Engine** guidance.
 5. Click **Stop learning** to clear the opening.
 
@@ -193,7 +193,7 @@ Run these in Microsoft Edge after a change to the extension.
 
 1. `npm run build:chrome`, then `edge://extensions` → Developer mode → Load unpacked → `dist/chrome`.
 2. `/play/computer`, no opening chosen: play a full game; the card shows a move every turn of yours until the game ends.
-3. Choose the Alien Gambit and play as White; when the bot plays the Caro-Kann, the card follows the line (Study badge, dashed bot predictions), including the 7.Nf3 and 7...Bg4? 8.Ne5+ trap notes.
+3. Choose the Alien Gambit and play as White; when the bot plays the Caro-Kann, the card shows the Study badge through 6.Nxf7 and then 7.Nf3, with dashed arrows for the expected bot replies while on the line. If the bot plays 7...Bg4, the card shows 8.Ne5+ (the trap).
 4. Bot deviates: the card switches to Book or Engine and names the new opening.
 5. `/play/online` and a `/game/live/…` page: nothing shown and no engine activity.
 6. Navigate from `/play/computer` to `/play/online` without reloading; the panel shows the blocked message within 1 s and no arrows remain.

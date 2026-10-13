@@ -291,3 +291,33 @@ test('no position: idle view', () => {
   assert.equal(c.view.blocked, false);
   assert.deepEqual(c.view.card.alternatives, []);
 });
+
+const realNotes = JSON.parse(readFileSync(new URL('../public/opening-notes.json', import.meta.url)));
+const ALIEN = ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Nf6', 'Ng5', 'h6', 'Nxf7', 'Kxf7'];
+
+test('R7: notes move continues the study line past the book (7.Nf3)', () => {
+  const { c } = setup({ notes: realNotes });
+  c.setTarget(target);
+  c.setPosition(pos(ALIEN));
+  assert.equal(c.view.card.kind, 'move');
+  assert.equal(c.view.card.move.san, 'Nf3');
+  assert.equal(c.view.card.move.source, 'study');
+});
+
+test('R7: notes move after 7...Bg4 is 8.Ne5+', () => {
+  const { c } = setup({ notes: realNotes });
+  c.setTarget(target);
+  c.setPosition(pos([...ALIEN, 'Nf3', 'Bg4']));
+  assert.equal(c.view.card.move.san, 'Ne5+');
+  assert.equal(c.view.card.move.source, 'study');
+});
+
+test('R7: no notes entry falls through to engine', async () => {
+  const { c, requests } = setup({ notes: realNotes });
+  c.setTarget(target);
+  c.setPosition(pos([...ALIEN, 'Qe2', 'Nbd7']));
+  assert.notEqual(c.view.card.move && c.view.card.move.source, 'study');
+  requests[0].res([{ uci: 'g1f3', scoreText: '+0.2', depth: 14 }]);
+  await tick();
+  assert.notEqual(c.view.card.move.source, 'study');
+});

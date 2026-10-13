@@ -2,7 +2,7 @@ import { STUDY } from '../../shared/constants.js';
 import { evaluate } from '../study/study-tracker.js';
 import { explain } from '../study/explainer.js';
 import { pickBookMove } from './counter-picker.js';
-import { normalizeFen, uciToSan, legalMoves } from '../chess/game-state.js';
+import { normalizeFen, uciToSan, sanToUci, legalMoves } from '../chess/game-state.js';
 
 // Decides the single best move for the user's turn: Study → Book → Engine (spec §4).
 // Pure: no DOM or chrome access.
@@ -105,9 +105,10 @@ export class CoachController {
 
     const fen = position.fen;
     const key = normalizeFen(fen);
-    const study = status && (status.state === 'on-track' || status.state === 'reached') &&
-      status.nextMove && status.nextMove.source === 'book' && status.nextMove.uci
+    const onLine = status && (status.state === 'on-track' || status.state === 'reached');
+    let study = onLine && status.nextMove && status.nextMove.source === 'book' && status.nextMove.uci
       ? status.nextMove : null;
+    if (!study && onLine) study = this._notesMove(fen, key);
     const lines = this.cache.get(key);
     if (lines) {
       this._fromLines(view, fen, sanHistory, lines, study);
@@ -120,6 +121,17 @@ export class CoachController {
       card.kind = this.failedKey === key ? 'unavailable' : this.engineLoading ? 'loading' : 'thinking';
     }
     return this.failedKey === key ? null : key;
+  }
+
+  // R7: a hand-written notes move that continues the study line past the book.
+  _notesMove(fen, key) {
+    const moves = this.notes && this.notes[key] && this.notes[key].moves;
+    if (!moves || typeof moves !== 'object') return null;
+    for (const san of Object.keys(moves)) {
+      const uci = sanToUci(fen, san);
+      if (uci) return { san, uci };
+    }
+    return null;
   }
 
   _fromLines(view, fen, sanHistory, lines, study) {
