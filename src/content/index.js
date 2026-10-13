@@ -366,7 +366,10 @@ class ChessAssistant {
         const pending = this.pendingEngine;
         if (lines.length && pending && samePosition(pending.fen, this.analysisStartFEN)) {
             this.pendingEngine = null;
-            pending.resolve(lines.map(m => ({ uci: m.move, scoreText: this.overlay.formatScore(m), depth: m.depth })));
+            pending.resolve(lines.map(m => ({
+                uci: m.move, scoreText: this.overlay.formatScore(m), depth: m.depth,
+                score: m.score, mateIn: m.mateIn
+            })));
         }
         this.analysisService.setAnalyzing(false);
     }

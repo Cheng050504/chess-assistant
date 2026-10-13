@@ -4,6 +4,8 @@ import { explain } from '../study/explainer.js';
 import { pickBookMove } from './counter-picker.js';
 import { normalizeFen, uciToSan, sanToUci, legalMoves } from '../chess/game-state.js';
 
+const ALT_MARGIN = 0.5; // pawns (R10: 50 centipawns)
+
 // Decides the single best move for the user's turn: Study → Book → Engine (spec §4).
 // Pure: no DOM or chrome access.
 export class CoachController {
@@ -150,11 +152,23 @@ export class CoachController {
     const line = lines.find((l) => l.uci === chosen.uci) || null;
     card.kind = 'move';
     card.move = this._move(fen, chosen.san, chosen.uci, chosen.source, line);
+    // R10: only alternatives close to the chosen move's line (or line 0 when the
+    // study move has no engine line) are offered.
+    const ref = line || lines[0];
     card.alternatives = lines
       .filter((l) => l.uci !== chosen.uci)
+      .filter((l) => this._closeEnough(ref, l))
       .filter((l, i, all) => all.findIndex((o) => o.uci === l.uci) === i)
       .slice(0, 2)
       .map((l) => ({ san: uciToSan(fen, l.uci), uci: l.uci }));
+  }
+
+  // Within ALT_MARGIN pawns of `ref` (better is fine); mates only alongside same-sign mates.
+  _closeEnough(ref, alt) {
+    if (ref.mateIn != null) return alt.mateIn != null && Math.sign(alt.mateIn) === Math.sign(ref.mateIn);
+    if (alt.mateIn != null) return alt.mateIn > 0;
+    if (ref.score == null || alt.score == null) return false;
+    return alt.score >= ref.score - ALT_MARGIN;
   }
 
   _move(fen, san, uci, source, line) {
@@ -171,7 +185,11 @@ export class CoachController {
   _validLines(fen, lines) {
     if (!Array.isArray(lines) || !lines.length) return null;
     for (const l of lines) if (!l || !uciToSan(fen, l.uci)) return null;
-    return lines.map((l) => ({ uci: l.uci, scoreText: l.scoreText ?? null, depth: l.depth ?? null }));
+    return lines.map((l) => ({
+      uci: l.uci, scoreText: l.scoreText ?? null, depth: l.depth ?? null,
+      score: Number.isFinite(l.score) ? l.score : null,
+      mateIn: Number.isInteger(l.mateIn) && l.mateIn !== 0 ? l.mateIn : null
+    }));
   }
 
   _startEngine(fen, key) {

@@ -11,7 +11,7 @@ A free browser extension that provides real-time chess analysis powered by Stock
 ## Features
 
 - **Real-time analysis** — Stockfish engine runs locally in your browser; no data is sent to any server
-- **One best move per turn** — on your turn the overlay shows a single best-move card with a source badge, a short reason when one applies, the evaluation and up to two alternatives, plus an arrow on the board
+- **One best move per turn** — on your turn the overlay shows a single best-move card with a source badge, a short reason when one applies, the evaluation and up to two alternatives that score about as well, plus an arrow on the board
 - **Opening-aware** — guidance follows the opening you chose to learn, then the best book move against the bot's opening, then Stockfish
 - **Learn an opening** — pick an opening by name or ECO code; the color is set automatically
 - **Depth control** — configurable analysis depth from 5 to 25 half-moves
@@ -146,7 +146,7 @@ The card shows:
 - the move, with a badge: **Study**, **Book** or **Engine**
 - a short reason when one applies
 - the evaluation and depth, for example `+0.3 · depth 15`
-- **Also good:** up to two alternative moves
+- **Also good:** up to two alternative moves, shown only when they are within half a pawn of the chosen move (a mate is listed only next to another mate for the same side)
 
 The move comes from the first rule that applies:
 

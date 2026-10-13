@@ -34,9 +34,9 @@ function setup(overrides = {}) {
 const tick = () => new Promise((res) => setTimeout(res, 0));
 const OUT_OF_BOOK = ['a3', 'h6'];
 const outLines = [
-  { uci: 'e2e4', scoreText: '+0.4', depth: 14 },
-  { uci: 'd2d4', scoreText: '+0.3', depth: 14 },
-  { uci: 'g1f3', scoreText: '+0.2', depth: 14 },
+  { uci: 'e2e4', scoreText: '+0.4', score: 0.4, depth: 14 },
+  { uci: 'd2d4', scoreText: '+0.3', score: 0.3, depth: 14 },
+  { uci: 'g1f3', scoreText: '+0.2', score: 0.2, depth: 14 },
 ];
 
 test('rule 1 study move shown immediately', () => {
@@ -58,9 +58,9 @@ test('rule 1 keeps study move and fills evaluation when lines arrive', async () 
   c.setTarget(target);
   c.setPosition(pos(['e4', 'c6']));
   requests[0].res([
-    { uci: 'b1c3', scoreText: '+0.5', depth: 15 },
-    { uci: 'd2d4', scoreText: '+0.4', depth: 15 },
-    { uci: 'g1f3', scoreText: '+0.3', depth: 15 },
+    { uci: 'b1c3', scoreText: '+0.5', score: 0.5, depth: 15 },
+    { uci: 'd2d4', scoreText: '+0.4', score: 0.4, depth: 15 },
+    { uci: 'g1f3', scoreText: '+0.3', score: 0.3, depth: 15 },
   ]);
   await tick();
   const card = c.view.card;
@@ -125,7 +125,7 @@ test('engine results are cached by position', async () => {
 test('alternatives exclude chosen and max 2', async () => {
   const { c, requests } = setup();
   c.setPosition(pos(OUT_OF_BOOK));
-  requests[0].res([...outLines, { uci: 'c2c4', scoreText: '+0.1', depth: 14 }, { uci: 'e2e4', scoreText: '+0.4', depth: 14 }]);
+  requests[0].res([...outLines, { uci: 'c2c4', scoreText: '+0.1', score: 0.1, depth: 14 }, { uci: 'e2e4', scoreText: '+0.4', score: 0.4, depth: 14 }]);
   await tick();
   const alts = c.view.card.alternatives;
   assert.equal(alts.length, 2);
@@ -334,4 +334,62 @@ test('R9: notes moves for the other side are never recommended (B10, user Black,
   await tick();
   assert.notEqual(c.view.card.move.source, 'study');
   assert.notEqual(c.view.card.move.san, 'Bg4');
+});
+
+async function altsFor(lines, { study = false } = {}) {
+  const { c, requests } = setup();
+  if (study) { c.setTarget(target); c.setPosition(pos(['e4', 'c6'])); }
+  else c.setPosition(pos(OUT_OF_BOOK));
+  requests[0].res(lines);
+  await tick();
+  return c.view.card;
+}
+
+test('R10: an alternative 2 pawns worse is omitted, one 0.3 worse is kept', async () => {
+  const card = await altsFor([
+    { uci: 'e2e4', scoreText: '+0.40', score: 0.4, depth: 14 },
+    { uci: 'd2d4', scoreText: '+0.10', score: 0.1, depth: 14 },
+    { uci: 'g1f3', scoreText: '-1.60', score: -1.6, depth: 14 },
+  ]);
+  assert.equal(card.move.uci, 'e2e4');
+  assert.deepEqual(card.alternatives.map((a) => a.uci), ['d2d4']);
+});
+
+test('R10: lines without a score never become alternatives', async () => {
+  const card = await altsFor([
+    { uci: 'e2e4', scoreText: '+0.40', score: 0.4, depth: 14 },
+    { uci: 'd2d4', scoreText: '+0.30', depth: 14 },
+  ]);
+  assert.deepEqual(card.alternatives, []);
+});
+
+test('R10: mate scores — only same-sign mates are alternatives', async () => {
+  let card = await altsFor([
+    { uci: 'e2e4', scoreText: 'Mate in 3', score: 1000, mateIn: 3, depth: 20 },
+    { uci: 'd2d4', scoreText: 'Mate in 5', score: 1000, mateIn: 5, depth: 20 },
+    { uci: 'g1f3', scoreText: '+9.00', score: 9, depth: 20 },
+  ]);
+  assert.deepEqual(card.alternatives.map((a) => a.uci), ['d2d4']);
+  card = await altsFor([
+    { uci: 'e2e4', scoreText: '-Mate in 3', score: -1000, mateIn: -3, depth: 20 },
+    { uci: 'd2d4', scoreText: '-Mate in 2', score: -1000, mateIn: -2, depth: 20 },
+  ]);
+  assert.deepEqual(card.alternatives.map((a) => a.uci), ['d2d4']);
+  card = await altsFor([
+    { uci: 'e2e4', scoreText: '+0.40', score: 0.4, depth: 20 },
+    { uci: 'd2d4', scoreText: '-Mate in 4', score: -1000, mateIn: -4, depth: 20 },
+  ]);
+  assert.deepEqual(card.alternatives, []);
+});
+
+test('R10: study move not among the lines compares against line 0', async () => {
+  // The study move d4 is not in the lines; Nc3 (+0.5) is the reference.
+  const card = await altsFor([
+    { uci: 'b1c3', scoreText: '+0.50', score: 0.5, depth: 15 },
+    { uci: 'g1f3', scoreText: '+0.30', score: 0.3, depth: 15 },
+    { uci: 'f2f4', scoreText: '-1.50', score: -1.5, depth: 15 },
+  ], { study: true });
+  assert.equal(card.move.uci, 'd2d4');
+  assert.equal(card.move.source, 'study');
+  assert.deepEqual(card.alternatives.map((a) => a.uci), ['b1c3', 'g1f3']);
 });
