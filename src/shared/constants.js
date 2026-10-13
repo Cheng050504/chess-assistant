@@ -8,7 +8,6 @@ export const APP_VERSION = '1.0.0';
 export const DEFAULT_SETTINGS = {
     depth: 15,
     enabled: true,
-    autoAnalyze: true,
     repertoireLines: [],
     highlightColor: '#9bc700',
     arrowColor: '#9bc700',
@@ -56,7 +55,6 @@ export const MESSAGE_TYPES = {
 export const STORAGE_KEYS = {
     DEPTH: 'depth',
     ENABLED: 'enabled',
-    AUTO_ANALYZE: 'autoAnalyze',
     REPERTOIRE_LINES: 'repertoireLines',
     HIGHLIGHT_COLOR: 'highlightColor',
     ARROW_COLOR: 'arrowColor',

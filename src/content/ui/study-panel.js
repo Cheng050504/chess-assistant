@@ -1,14 +1,20 @@
 /**
- * Study section of the overlay: header, status line, move card and the
- * inline opening picker. Builds DOM nodes only; all data and user text is
- * inserted through textContent.
+ * Coach section of the overlay: opening name, the best-move card, the
+ * "Learn an opening" row, the study status line and the inline opening
+ * picker. Builds DOM nodes only; all data and user text is inserted through
+ * textContent.
  */
 
-import { defaultStudyColor } from '../study/study-recent.js';
-
 const BLOCKED_COPY = 'Assistance is off in games against people.';
-const COLOR_LABEL = { w: 'White', b: 'Black' };
-const BADGE_LABEL = { book: 'Book', notes: 'Notes', engine: 'Engine' };
+const BADGE_LABEL = { study: 'Study', book: 'Book', engine: 'Engine' };
+const CARD_COPY = {
+    waiting: 'Waiting for the bot…',
+    thinking: 'Thinking…',
+    loading: 'Engine loading…',
+    unavailable: 'Engine unavailable — retrying on the next move',
+    syncing: 'Syncing with board…',
+    gameover: 'Game over'
+};
 const PREVIEW_MOVES = 6;
 
 function el(tag, className, text) {
@@ -31,8 +37,7 @@ function button(label, className, onClick, { action, title, ariaLabel } = {}) {
 export class StudyPanel {
     /**
      * @param {HTMLElement} rootEl
-     * @param {{onPick: Function, onToggleMode: Function, onReveal: Function,
-     *          onSearch: Function, onColor: Function}} callbacks
+     * @param {{onPick: Function, onStop: Function, onSearch: Function}} callbacks
      */
     constructor(rootEl, callbacks = {}) {
         this.root = rootEl;
@@ -41,8 +46,6 @@ export class StudyPanel {
         this.view = null;
         this.recent = [];
         this.picker = null;
-        this.pickerColor = null; // explicit White/Black choice, null = default
-        this.hintColor = 'w';
 
         this.body = el('div', 'study-body');
         this.body.setAttribute('aria-live', 'polite');
@@ -81,72 +84,63 @@ export class StudyPanel {
 
     buildBody(view) {
         if (view && view.blocked) return [el('p', 'study-note', BLOCKED_COPY)];
-        if (this.dataState === 'loading') return [el('p', 'study-note', 'Loading openings…')];
 
         const nodes = [];
+        if (view && view.openingName) nodes.push(el('div', 'coach-opening', view.openingName));
+        const card = this.buildCard(view && view.card);
+        if (card) nodes.push(card);
+        nodes.push(this.buildLearnRow(view && view.target));
         if (this.dataState === 'unavailable') {
             nodes.push(el('p', 'study-note study-error', 'Opening data unavailable'));
         }
-
-        const target = view && view.target;
-        if (!target) {
-            nodes.push(el('p', 'study-empty', 'Pick an opening to study'));
-            nodes.push(button('Choose opening', 'study-btn study-btn-primary', () => this.openPicker(),
-                { action: 'choose', title: 'Choose an opening (O)' }));
-            return nodes;
-        }
-
-        nodes.push(this.buildHeader(view, target));
-
-        const status = el('div', 'study-status');
-        if (view.status && view.status.message) {
-            status.appendChild(el('span', 'study-status-text', view.status.message));
-        }
-        const source = view.move && view.move.source;
-        if (BADGE_LABEL[source]) {
-            status.appendChild(el('span', `ca-badge ca-badge-${source}`, BADGE_LABEL[source]));
-        }
-        if (status.childNodes.length) nodes.push(status);
-
-        if (view.engineState === 'pending') nodes.push(el('p', 'study-engine', 'Engine thinking…'));
-        if (view.engineState === 'unavailable') nodes.push(el('p', 'study-engine study-error', 'Engine unavailable'));
-
-        if (view.move && view.revealed) nodes.push(this.buildMoveCard(view.move));
-        else if (view.move) {
-            const card = el('div', 'study-card study-card-hidden');
-            card.appendChild(el('p', 'study-prompt', view.move.source === 'engine' ? 'Find the best move' : 'Find the book move'));
-            card.appendChild(button('Show me', 'study-btn study-btn-primary', () => this.callbacks.onReveal?.(),
-                { action: 'reveal', title: 'Reveal the move (H)' }));
-            nodes.push(card);
+        if (view && view.target && view.studyMessage) {
+            nodes.push(el('p', 'coach-status', `↳ ${view.studyMessage}`));
         }
         return nodes;
     }
 
-    buildHeader(view, target) {
-        const header = el('div', 'study-header');
-        header.appendChild(el('span', 'study-title', `${target.eco} · ${target.name}`));
-        header.appendChild(el('span', `study-color study-color-${target.color}`, COLOR_LABEL[target.color] || ''));
-
-        const label = view.mode === 'try' ? 'Try' : 'Show';
-        const toggle = button(label, 'study-btn study-mode', () => this.callbacks.onToggleMode?.(), {
-            action: 'mode',
-            title: 'Switch between Show and Try (S)',
-            ariaLabel: `${label} mode, switch mode (S)`
-        });
-        header.appendChild(toggle);
-        header.appendChild(button('Change', 'study-btn', () => this.openPicker(),
-            { action: 'change', title: 'Change opening (O)' }));
-        return header;
+    buildCard(card) {
+        if (!card) return null;
+        if (card.kind === 'move' && card.move) return this.buildMoveCard(card);
+        const copy = CARD_COPY[card.kind];
+        return copy ? el('div', 'coach-card coach-card-note', copy) : null;
     }
 
-    buildMoveCard(move) {
-        const card = el('div', 'study-card');
-        card.appendChild(el('div', 'study-move-san', move.san || move.uci || ''));
-        const explanation = move.explanation || {};
-        if (explanation.text) card.appendChild(el('p', 'study-explanation', explanation.text));
-        if (explanation.threat) card.appendChild(el('p', 'study-threat', explanation.threat));
-        if (explanation.nextObjective) card.appendChild(el('p', 'study-next', explanation.nextObjective));
+    buildMoveCard({ move, alternatives }) {
+        const card = el('div', 'coach-card');
+        const top = el('div', 'coach-card-top');
+        top.appendChild(el('span', 'coach-move', move.san || move.uci || ''));
+        if (BADGE_LABEL[move.source]) {
+            top.appendChild(el('span', `ca-badge ca-badge-${move.source}`, BADGE_LABEL[move.source]));
+        }
+        card.appendChild(top);
+        const text = move.explanation && move.explanation.text;
+        if (text) card.appendChild(el('p', 'coach-explanation', text));
+        if (move.scoreText && move.depth) {
+            card.appendChild(el('p', 'coach-score', `${move.scoreText} · depth ${move.depth}`));
+        }
+        const alts = (alternatives || []).map(a => a.san || a.uci).filter(Boolean);
+        if (alts.length) card.appendChild(el('p', 'coach-alts', 'Also good: ' + alts.join(' · ')));
         return card;
+    }
+
+    buildLearnRow(target) {
+        const row = el('div', 'coach-learn');
+        row.appendChild(el('span', 'coach-learn-label', 'Learn an opening'));
+        if (!target) {
+            const choose = button('Choose…', 'study-btn', () => this.openPicker(), { action: 'choose' });
+            choose.disabled = this.dataState === 'loading';
+            row.appendChild(choose);
+            return row;
+        }
+        row.appendChild(el('span', 'coach-learn-name', target.name));
+        row.appendChild(button('✎', 'study-btn coach-edit', () => this.openPicker(),
+            { action: 'change', title: 'Change opening', ariaLabel: 'Change opening' }));
+        row.appendChild(button('Stop learning', 'coach-stop', () => {
+            this.closePicker();
+            this.callbacks.onStop?.();
+        }, { action: 'stop' }));
+        return row;
     }
 
     // ── Picker ────────────────────────────────────────────────────────────────
@@ -154,13 +148,9 @@ export class StudyPanel {
     openPicker() {
         if (this.picker || this.dataState === 'loading' || (this.view && this.view.blocked)) return;
 
-        const target = this.view && this.view.target;
-        this.pickerColor = null;
-        this.hintColor = target ? defaultStudyColor(target.moves) : 'w';
-
         const wrap = el('div', 'study-picker');
         wrap.setAttribute('role', 'group');
-        wrap.setAttribute('aria-label', 'Choose an opening to study');
+        wrap.setAttribute('aria-label', 'Choose an opening to learn');
 
         const row = el('div', 'study-picker-row');
         const input = el('input', 'study-search');
@@ -180,28 +170,14 @@ export class StudyPanel {
         row.appendChild(button('×', 'study-btn study-close', () => this.closePicker(),
             { title: 'Close (Esc)', ariaLabel: 'Close opening picker' }));
 
-        const seg = el('div', 'study-seg');
-        seg.setAttribute('role', 'group');
-        seg.setAttribute('aria-label', 'Study as');
-        const segButtons = {};
-        for (const color of ['w', 'b']) {
-            segButtons[color] = button(COLOR_LABEL[color], 'study-seg-btn', () => {
-                this.pickerColor = color;
-                this.updateSwitch();
-                this.callbacks.onColor?.(color);
-            });
-            seg.appendChild(segButtons[color]);
-        }
-
         const results = el('ul', 'study-results');
         const recentHeading = el('div', 'study-picker-heading', 'Recent');
         const recentList = el('ul', 'study-results study-recent');
 
-        wrap.append(row, seg, results, recentHeading, recentList);
-        this.picker = { wrap, input, segButtons, results, recentHeading, recentList };
+        wrap.append(row, results, recentHeading, recentList);
+        this.picker = { wrap, input, results, recentHeading, recentList };
         this.pickerHost.replaceChildren(wrap);
 
-        this.updateSwitch();
         this.renderResults();
         this.renderRecent();
         (input.disabled ? wrap.querySelector('button') : input).focus();
@@ -218,26 +194,6 @@ export class StudyPanel {
         }
     }
 
-    currentColor() {
-        return this.pickerColor || this.hintColor;
-    }
-
-    updateSwitch() {
-        if (!this.picker) return;
-        const color = this.currentColor();
-        for (const [c, btn] of Object.entries(this.picker.segButtons)) {
-            btn.classList.toggle('active', c === color);
-            btn.setAttribute('aria-pressed', String(c === color));
-        }
-    }
-
-    // Until the user chooses a color, the switch follows the line under the pointer/focus.
-    hint(sanMoves) {
-        if (this.pickerColor) return;
-        this.hintColor = defaultStudyColor(sanMoves);
-        this.updateSwitch();
-    }
-
     renderResults() {
         if (!this.picker) return;
         const query = this.picker.input.value.trim();
@@ -251,11 +207,8 @@ export class StudyPanel {
             list.replaceChildren(el('li', 'study-results-empty', 'No openings found'));
             return;
         }
-        list.replaceChildren(...results.map(r => this.buildResultItem(r.eco, r.name, r.sanMoves, () => ({
-            eco: r.eco, name: r.name, moves: r.sanMoves, fen: r.fen,
-            color: this.pickerColor || defaultStudyColor(r.sanMoves), mode: 'show'
-        }))));
-        this.hint(results[0].sanMoves);
+        list.replaceChildren(...results.map(r => this.buildResultItem(
+            { eco: r.eco, name: r.name, moves: r.sanMoves, fen: r.fen })));
     }
 
     renderRecent() {
@@ -263,24 +216,18 @@ export class StudyPanel {
         const { recentHeading, recentList } = this.picker;
         const items = this.recent.filter(t => t && t.eco && t.name && Array.isArray(t.moves));
         recentHeading.hidden = items.length === 0;
-        recentList.replaceChildren(...items.map(t => this.buildResultItem(t.eco, t.name, t.moves, () => ({
-            eco: t.eco, name: t.name, moves: t.moves, fen: t.fen,
-            color: this.pickerColor || t.color || defaultStudyColor(t.moves), mode: 'show'
-        }))));
+        recentList.replaceChildren(...items.map(t => this.buildResultItem(
+            { eco: t.eco, name: t.name, moves: t.moves, fen: t.fen })));
     }
 
-    buildResultItem(eco, name, sanMoves, makeTarget) {
+    buildResultItem(target) {
         const item = el('li');
         const btn = button('', 'study-result', () => {
-            const target = makeTarget();
             this.closePicker();
             this.callbacks.onPick?.(target);
         });
-        btn.appendChild(el('span', 'study-result-name', `${eco} ${name}`));
-        btn.appendChild(el('span', 'study-result-moves', (sanMoves || []).slice(0, PREVIEW_MOVES).join(' ')));
-        const onHint = () => this.hint(sanMoves);
-        btn.addEventListener('focus', onHint);
-        btn.addEventListener('mouseenter', onHint);
+        btn.appendChild(el('span', 'study-result-name', `${target.eco} ${target.name}`));
+        btn.appendChild(el('span', 'study-result-moves', (target.moves || []).slice(0, PREVIEW_MOVES).join(' ')));
         item.appendChild(btn);
         return item;
     }
