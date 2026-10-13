@@ -308,7 +308,10 @@ class ChessAssistant {
             // The board moved on: fail now so the card doesn't wait for the timeout.
             logger.warn('Position changed during analysis, discarding');
             this.analysisService.stopAnalysis();
-            this.rejectEngine('Position changed during analysis');
+            // Only the request this search serves; a newer deferred request survives.
+            if (samePosition(this.pendingEngine?.fen, this.analysisStartFEN)) {
+                this.rejectEngine('Position changed during analysis');
+            }
             return;
         }
         if (isBest) this.resolveEngine();
