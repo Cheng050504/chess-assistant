@@ -393,3 +393,24 @@ test('R10: study move not among the lines compares against line 0', async () => 
   assert.equal(card.move.source, 'study');
   assert.deepEqual(card.alternatives.map((a) => a.uci), ['b1c3', 'g1f3']);
 });
+
+test('game over: insufficient material (K vs K)', () => {
+  const { c, calls } = setup();
+  c.setPosition({ sanHistory: [], fen: '8/8/4k3/8/8/4K3/8/8 w - - 0 60', turn: 'w', userColor: 'w', synced: true });
+  assert.equal(c.view.card.kind, 'gameover');
+  assert.equal(calls.request.length, 0);
+});
+
+test('game over: threefold repetition', () => {
+  const { c, calls } = setup();
+  c.setPosition(pos(['Nf3', 'Nf6', 'Ng1', 'Ng8', 'Nf3', 'Nf6', 'Ng1', 'Ng8']));
+  assert.equal(c.view.card.kind, 'gameover');
+  assert.equal(calls.request.length, 0);
+});
+
+test('not game over when the history does not lead to the position', () => {
+  const { c } = setup();
+  const p = pos(['Nf3', 'Nf6', 'Ng1', 'Ng8', 'Nf3', 'Nf6', 'Ng1', 'Ng8']);
+  c.setPosition({ ...p, sanHistory: ['e4'] });
+  assert.notEqual(c.view.card.kind, 'gameover');
+});

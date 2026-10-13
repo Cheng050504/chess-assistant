@@ -2,7 +2,7 @@ import { STUDY } from '../../shared/constants.js';
 import { evaluate } from '../study/study-tracker.js';
 import { explain } from '../study/explainer.js';
 import { pickBookMove } from './counter-picker.js';
-import { normalizeFen, uciToSan, sanToUci, legalMoves } from '../chess/game-state.js';
+import { normalizeFen, uciToSan, sanToUci, legalMoves, isDrawnPosition } from '../chess/game-state.js';
 
 const ALT_MARGIN = 0.5; // pawns (R10: 50 centipawns)
 
@@ -88,7 +88,10 @@ export class CoachController {
     if (!position.synced) { card.kind = 'syncing'; return null; }
     let legal;
     try { legal = legalMoves(position.fen); } catch (e) { card.kind = 'syncing'; return null; }
-    if (!legal.length) { card.kind = 'gameover'; return null; }
+    if (!legal.length || isDrawnPosition(position.fen, position.sanHistory || [])) {
+      card.kind = 'gameover';
+      return null;
+    }
 
     const tree = this.tree;
     const sanHistory = position.sanHistory || [];

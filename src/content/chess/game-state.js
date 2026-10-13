@@ -67,3 +67,22 @@ export function legalMoves(fen) {
     flags: m.flags,
   }));
 }
+
+// Draws the coach treats as game over: insufficient material (read from the FEN) and
+// threefold repetition (needs the history: replayed from the start and used only when
+// it ends in `fen`). Returns false when neither can be shown.
+export function isDrawnPosition(fen, sanHistory = []) {
+  try {
+    if (new Chess(fen).isInsufficientMaterial()) return true;
+  } catch (e) {
+    return false;
+  }
+  try {
+    const chess = new Chess(START_FEN);
+    for (const san of sanHistory) chess.move(String(san).replace(/[!?]/g, ''));
+    if (normalizeFen(chess.fen()) !== normalizeFen(fen)) return false;
+    return chess.isThreefoldRepetition();
+  } catch (e) {
+    return false;
+  }
+}
