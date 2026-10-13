@@ -10,13 +10,14 @@ const tree = OpeningTree.build(JSON.parse(readFileSync(new URL('./fixtures/eco-s
 test('picks the engine-ordered book move', () => {
   const sanHistory = ['e4'];
   const { fen } = replay(sanHistory);
-  const engineLines = [{ uci: 'g7g6' }, { uci: 'c7c6' }, { uci: 'e7e6' }];
+  const engineLines = [{ uci: 'g7g6' }, { uci: 'e7e6' }, { uci: 'c7c6' }];
   const bookUcis = tree.bookContinuations(tree.nodeForFen(fen)).map((c) => sanToUci(fen, c.san));
   const expected = engineLines.map((l) => l.uci).find((u) => bookUcis.includes(u));
   assert.ok(expected);
   const r = pickBookMove({ fen, sanHistory, tree, engineLines });
   assert.equal(r.uci, expected);
-  assert.equal(r.uci, 'c7c6');
+  assert.equal(r.uci, 'e7e6');
+  assert.notEqual(r.uci, 'c7c6');
 });
 
 test('no intersection returns null', () => {
@@ -27,7 +28,7 @@ test('no intersection returns null', () => {
 test('not in tree returns null', () => {
   const sanHistory = ['a3', 'h6'];
   const { fen } = replay(sanHistory);
-  assert.equal(pickBookMove({ fen, sanHistory, tree, engineLines: [{ uci: 'e2e4' }] }), null);
+  assert.equal(pickBookMove({ fen, sanHistory, tree, engineLines: [{ uci: 'e7e5' }] }), null);
 });
 
 test('no tree returns null', () => {
